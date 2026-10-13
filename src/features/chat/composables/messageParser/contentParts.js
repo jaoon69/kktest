@@ -4,6 +4,7 @@ import {
   getGiftPrice
 } from '../../../../data/gifts'
 import { estimateVoiceDuration, generateWaveform } from '../../../../utils/voiceWaveform'
+import { hasSmartUIMarkup, splitSmartUISegments, stripArchivedSmartUI } from '../../smartUI/markup'
 
 export { estimateVoiceDuration, generateWaveform }
 
@@ -341,7 +342,21 @@ export function rebuildMessageContent(parts) {
 }
 
 export function parseMessageContent(content, allowStickersOrOptions = true) {
-  const normalizedContent = normalizeLineBreaks(content)
+  const normalizedContent = stripArchivedSmartUI(normalizeLineBreaks(content))
+
+  // <ui> 智能界面块是可跨行的整体，先于逐行/旁白解析切出来，保证各处 partIndex 一致
+  if (hasSmartUIMarkup(normalizedContent)) {
+    const uiParts = []
+    for (const segment of splitSmartUISegments(normalizedContent)) {
+      if (segment.type === 'ui') {
+        uiParts.push({ type: 'ui', content: segment.content.trim(), complete: segment.complete })
+      } else if (segment.content.trim()) {
+        uiParts.push(...parseMessageContent(segment.content, allowStickersOrOptions))
+      }
+    }
+    return uiParts
+  }
+
   const parts = []
   const regex = /\*([^*\n]+)\*/g
 

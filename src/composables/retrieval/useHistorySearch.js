@@ -6,7 +6,9 @@
 import { estimateTokens, trimToMaxTokens } from '../../utils/tokens'
 import { normalizeSearchText } from '../../utils/searchText'
 import { useConfigsStore } from '../../stores/configs'
+import { useSettingsStore } from '../../stores/settings'
 import { applyOptionalMaxTokens } from '../api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from '../api/providerRequest'
 
 const MAX_QUERY_VARIANTS = 6
 const MAX_QUERY_PHRASES = 4
@@ -627,7 +629,7 @@ export async function vectorSearchMessages(msgs, contact, options = {}) {
   const { getEmbeddingConfig, initContactMemory } = await import('../memory/shared')
 
   initContactMemory(contact)
-  const embeddingConfig = getEmbeddingConfig(contact)
+  const embeddingConfig = getEmbeddingConfig(contact, useSettingsStore())
   if (!embeddingConfig) return searchMessages(msgs, '', options)
 
   const maxResults = options.maxResults || 3
@@ -727,9 +729,6 @@ export async function rerankWithLLM(candidates, query, contact) {
 ${snippetList}`
 
   try {
-    let url = cfg.url.replace(/\/$/, '')
-    if (!url.endsWith('/chat/completions')) url += '/chat/completions'
-
     const body = {
       model: cfg.model,
       messages: [
@@ -740,19 +739,12 @@ ${snippetList}`
     }
     applyOptionalMaxTokens(body, cfg.maxTokens)
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + cfg.key
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: res } = await fetchProviderChat(cfg, body)
 
     if (!res.ok) return candidates
 
     const data = await res.json()
-    const content = data.choices?.[0]?.message?.content?.trim()
+    const content = extractProviderNonStreamText(cfg, data).trim()
     if (!content) return candidates
 
     // Parse the indices from the response

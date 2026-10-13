@@ -96,6 +96,60 @@ describe('anthropicMessages adapter', () => {
     })
   })
 
+  it.each(['5m', '1h'])('caches the main prompt without marking dynamic system blocks with a %s TTL', (ttl) => {
+    const texts = Array.from({ length: 30 }, (_, index) => `System section ${index}`)
+    const messages = [
+      { role: 'system', content: texts[0] },
+      { role: 'user', content: 'Hi' },
+      { role: 'system', content: texts.slice(1).map(text => ({ type: 'text', text })) }
+    ]
+    const originalMessages = structuredClone(messages)
+    const cfg = { key: 'test-key', model: 'claude-opus-4-5', cacheConfig: { enabled: true, ttl } }
+
+    const request = buildAnthropicMessagesRequest(cfg, messages)
+    const cached = request.body.system.filter(part => part.cache_control)
+
+    expect(request.body.system.map(part => part.text)).toEqual(texts)
+    expect(cached.map(part => part.text)).toEqual([texts[0]])
+    expect(cached.every(part => (part.cache_control.ttl || '5m') === ttl)).toBe(true)
+    expect(messages).toEqual(originalMessages)
+    expect(buildAnthropicMessagesRequest(cfg, messages)).toEqual(request)
+  })
+
+  it('places one cache breakpoint at the end of a main prompt containing multiple text blocks', () => {
+    const texts = Array.from({ length: 6 }, (_, index) => `Reusable section ${index}`)
+    const request = buildAnthropicMessagesRequest({ key: 'test-key', cacheConfig: { enabled: true } }, [
+      { role: 'system', content: texts.map(text => ({ type: 'text', text })) },
+      { role: 'system', content: 'Changing history summary' },
+      { role: 'user', content: 'Hi' },
+      { role: 'system', content: 'Current time' }
+    ])
+
+    expect(request.body.system.filter(part => part.cache_control)).toEqual([
+      { type: 'text', text: texts.at(-1), cache_control: { type: 'ephemeral' } }
+    ])
+    expect(request.body.system.map(part => part.text)).toEqual([...texts, 'Changing history summary', 'Current time'])
+  })
+
+  it('does not treat a system instruction after conversation as a reusable main prompt', () => {
+    const request = buildAnthropicMessagesRequest({ key: 'test-key', cacheConfig: { enabled: true } }, [
+      { role: 'user', content: 'Hi' },
+      { role: 'system', content: 'Current time' }
+    ])
+
+    expect(request.body.system).toEqual([{ type: 'text', text: 'Current time' }])
+  })
+
+  it.each([{ enabled: false }, { enabled: true, systemPrompt: false }])('does not add cache breakpoints when disabled by %j', (cacheConfig) => {
+    const request = buildAnthropicMessagesRequest({ key: 'test-key', cacheConfig }, [
+      { role: 'system', content: 'Character instructions' },
+      { role: 'system', content: 'Context summary' },
+      { role: 'user', content: 'Hi' }
+    ])
+
+    expect(request.body.system.every(part => !part.cache_control)).toBe(true)
+  })
+
   it('consumes Anthropic SSE text and usage deltas', async () => {
     const response = createTextResponse([
       'event: content_block_delta',
@@ -308,6 +362,34 @@ describe('anthropicMessages adapter', () => {
     expect(body).not.toHaveProperty('frequency_penalty')
     expect(body).not.toHaveProperty('presence_penalty')
     expect(body).not.toHaveProperty('seed')
+  })
+
+  it.each([false, true])('limits cache breakpoints across tools, system and messages (automatic cache: %s)', (automaticCache) => {
+    const cacheControl = { type: 'ephemeral' }
+    const original = {
+      ...(automaticCache ? { cache_control: cacheControl } : {}),
+      tools: [{ name: 'lookup', input_schema: { type: 'object' }, cache_control: cacheControl }],
+      system: Array.from({ length: 3 }, (_, index) => ({
+        type: 'text', text: `System ${index}`, cache_control: cacheControl
+      })),
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'url', url: 'https://example.com/image.png' }, cache_control: cacheControl },
+        { type: 'text', text: 'Describe this image', cache_control: cacheControl }
+      ] }]
+    }
+    const snapshot = structuredClone(original)
+
+    const body = sanitizeAnthropicBody(original)
+    const cachedBlocks = [...body.tools, ...body.system, ...body.messages[0].content]
+      .filter(part => part.cache_control)
+    expect(cachedBlocks).toHaveLength(automaticCache ? 3 : 4)
+    expect(cachedBlocks[0]).toEqual(original.tools[0])
+    expect(cachedBlocks.at(-1)).toEqual(original.messages[0].content.at(-1))
+    const withoutCache = value => JSON.parse(JSON.stringify(value, (key, child) => key === 'cache_control' ? undefined : child))
+    expect(withoutCache(body)).toEqual(withoutCache(original))
+    expect(body.cache_control).toEqual(original.cache_control)
+    expect(original).toEqual(snapshot)
+    expect(sanitizeAnthropicBody(body)).toEqual(body)
   })
 
   it('drops top_p when temperature is also present', () => {

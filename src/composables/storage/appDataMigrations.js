@@ -39,6 +39,29 @@ function getMigrationContext(data) {
   }
 }
 
+const EMBEDDING_CREDENTIAL_KEYS = [
+  'embeddingApiUrl',
+  'embeddingApiKey',
+  'embeddingModel'
+]
+const GLOBAL_EMBEDDING_SETTING_KEYS = [
+  ...EMBEDDING_CREDENTIAL_KEYS,
+  'embeddingDimensions'
+]
+
+function hasLegacyContactEmbeddingSettings(context) {
+  const hasGlobalConfig = GLOBAL_EMBEDDING_SETTING_KEYS.every((key) => (
+    context.rawSettings && Object.prototype.hasOwnProperty.call(context.rawSettings, key)
+  ))
+  if (hasGlobalConfig || !Array.isArray(context.source?.contacts)) return false
+
+  return context.source.contacts.some((contact) => {
+    const settings = contact?.memorySettings
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return false
+    return EMBEDDING_CREDENTIAL_KEYS.some(key => String(settings[key] || '').trim())
+  })
+}
+
 function migrateLegacyForumSnapshot(normalized) {
   if (!Array.isArray(normalized.forum)) return false
 
@@ -121,6 +144,12 @@ export const APP_DATA_MIGRATIONS = [
       if (!hasLegacyPlannerToggle || hasNewPlannerCapture) return false
       normalized.settings.allowAIPlannerCapture = !!normalized.settings.allowPlannerAI
       return true
+    }
+  },
+  {
+    id: 'global-embedding-api-settings',
+    migrate(_normalized, context) {
+      return hasLegacyContactEmbeddingSettings(context)
     }
   },
   {

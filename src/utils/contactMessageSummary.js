@@ -1,4 +1,4 @@
-import { parseMessageContent } from '../features/chat'
+import { getSmartUITitle, parseMessageContent } from '../features/chat'
 import { extractQuoteFromText } from './messageQuote'
 
 function normalizePreviewText(text) {
@@ -87,6 +87,10 @@ export function buildMessagePreview(message) {
   if (part.type === 'transfer') return '[转账]'
   if (part.type === 'music') return '[音乐]'
   if (part.type === 'mockImage') return '[相机]'
+  if (part.type === 'ui') {
+    const title = normalizePreviewText(getSmartUITitle(part.content))
+    return title ? `[卡片] ${title}` : '[卡片]'
+  }
 
   const preview = normalizeTextPreview(part.content ?? rawContent)
   return preview || normalizeTextPreview(rawContent) || normalizePreviewText(rawContent)

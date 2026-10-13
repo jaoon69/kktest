@@ -89,4 +89,15 @@ describe('selectToolsForIntent', () => {
       'mcp_remote_lookup_scrape_url'
     ])
   })
+
+  it('selects built-in web search tools for search intent and urls', () => {
+    const tools = [...ALL_TOOLS.slice(0, 4), tool('web_search'), tool('web_scrape')]
+    expect(selectToolsForIntent('帮我查一下最新的新闻', tools).map(t => t.function.name)).toEqual([
+      'web_search',
+      'web_scrape'
+    ])
+    expect(selectToolsForIntent('看看这个 https://vuejs.org/guide', tools).map(t => t.function.name)).toEqual(['web_scrape'])
+    expect(selectToolsForIntent('github.com/vuejs/core 这个仓库讲了啥', tools).map(t => t.function.name)).toEqual(['web_scrape'])
+    expect(selectToolsForIntent('今天天气好', tools)).toEqual([])
+  })
 })

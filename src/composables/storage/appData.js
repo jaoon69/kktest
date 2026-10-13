@@ -132,9 +132,21 @@ export function redactSecretsForExport(data) {
     })
   }
 
+  if (Array.isArray(data.contacts)) {
+    data.contacts = data.contacts.map((contact) => {
+      const memorySettings = contact?.memorySettings
+      if (!memorySettings || typeof memorySettings !== 'object') return contact
+      return {
+        ...contact,
+        memorySettings: { ...memorySettings, embeddingApiKey: '' }
+      }
+    })
+  }
+
   if (data.settings && typeof data.settings === 'object') {
     if (typeof data.settings.sttApiKey === 'string') data.settings.sttApiKey = ''
     if (typeof data.settings.whisperApiKey === 'string') data.settings.whisperApiKey = ''
+    if (typeof data.settings.embeddingApiKey === 'string') data.settings.embeddingApiKey = ''
 
     const voiceConfig = data.settings.voiceTtsConfig
     if (voiceConfig && typeof voiceConfig === 'object') {

@@ -10,7 +10,11 @@ const DEFAULT_ALLOWED_HOSTS = [
   'api-uw.minimax.io',
   'api.minimaxi.com',
   'api-bj.minimaxi.com',
-  'api.mortis.edu.kg'
+  'api.mortis.edu.kg',
+  // 联网搜索引擎（Exa 不对线上域名开放 CORS，其余作为直连失败时的兜底）
+  'api.tavily.com',
+  'api.exa.ai',
+  'api.firecrawl.dev'
 ]
 const DEFAULT_ALLOWED_HOST_SUFFIXES = ['.minimax.io', '.minimaxi.com']
 

@@ -140,6 +140,23 @@ describe('resolveOpenAICompatRequest', () => {
 })
 
 describe('fetchOpenAICompat', () => {
+  it('uses explicit endpoints with query parameters and keeps proxy routing', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (...args) => ({ args })
+    try {
+      const targetUrl = 'https://api.mortis.edu.kg/v1/responses?route=1'
+      const { request, response } = await fetchOpenAICompat('https://api.mortis.edu.kg', {
+        targetUrl, path: '/responses', apiKey: 'k', body: { model: 'gpt-test' },
+        locationLike: { origin: 'https://app.example', hostname: 'app.example' }
+      })
+      expect(request).toMatchObject({ url: '/api/proxy', targetUrl, headers: { 'x-target-url': targetUrl } })
+      expect(response.args[0]).toBe('/api/proxy')
+      expect(response.args[1]).not.toHaveProperty('targetUrl')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('forwards proxied requests with target header', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = async (...args) => ({ args })

@@ -1,3 +1,5 @@
+import { buildIntelligentUIPrompts } from './prompts/intelligentUI'
+
 function buildSharedRequestPlan({
   templateVars,
   promptStore,
@@ -18,7 +20,8 @@ function buildSharedRequestPlan({
   const replyFormatPrompt = shouldAddReplyFormatPrompt(outputFormatPrompt)
     ? buildReplyFormatSystemPrompt()
     : ''
-  const combinedFeaturesPrompt = [toolCallingPrompt, specialFeaturesPrompt].filter(Boolean).join('\n')
+  const intelligentUI = buildIntelligentUIPrompts(promptStore)
+  const combinedFeaturesPrompt = [toolCallingPrompt, specialFeaturesPrompt, intelligentUI.reminder].filter(Boolean).join('\n')
 
   const { mainSystemPrompt, postHistoryPrompt } = buildUnifiedSystemPrompt({
     mainPrompt,
@@ -30,6 +33,7 @@ function buildSharedRequestPlan({
     memoryPrompt,
     specialFeaturesPrompt: combinedFeaturesPrompt,
     musicContextPrompt,
+    intelligentUIPrompt: intelligentUI.reference,
     includeContextAwareness: true
   })
 

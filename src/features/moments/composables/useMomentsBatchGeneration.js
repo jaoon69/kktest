@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { stripOuterCodeFence } from '../utils/aiGeneration'
 import { extractMomentMedia } from '../../../utils/momentMedia'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from '../../../composables/api/providerRequest'
 import { getTimePeriodLabel } from '../../../composables/liveness/eventTypes'
 
 const TOPIC_SEEDS = [
@@ -35,8 +36,6 @@ export function useMomentsBatchGeneration({
   const batchProgressText = ref('')
 
   async function requestCompletion(cfg, systemPrompt, userPrompt, maxTokens = 500) {
-    let url = (cfg?.url || '').replace(/\/$/, '')
-    if (!url.endsWith('/chat/completions')) url += '/chat/completions'
     const body = {
       model: cfg.model,
       messages: [
@@ -45,17 +44,10 @@ export function useMomentsBatchGeneration({
       ]
     }
     applyOptionalMaxTokens(body, cfg?.maxTokens, maxTokens)
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + cfg.key
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: response } = await fetchProviderChat(cfg, body)
     if (!response.ok) throw new Error('API 请求失败')
     const data = await response.json()
-    return data.choices?.[0]?.message?.content || ''
+    return extractProviderNonStreamText(cfg, data)
   }
 
   function buildBatchPostPrompt(contact) {

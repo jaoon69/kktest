@@ -7,6 +7,7 @@ import { useConfigsStore } from '../../stores/configs'
 import { usePersonasStore } from '../../stores/personas'
 import { normalizeRoleAliasesToTemplateVars } from '../api/prompts'
 import { applyOptionalMaxTokens } from '../api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from '../api/providerRequest'
 import { makeId } from '../../utils/id'
 import { estimateTokens } from '../../utils/tokens'
 import {
@@ -174,9 +175,6 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
       '没有要改的就输出：{"keep":[],"delete":[],"merge":[]}'
     ].join('\n')
 
-    let url = cfg.url.replace(/\/$/, '')
-    if (!url.endsWith('/chat/completions')) url += '/chat/completions'
-
     const body = {
       model: cfg.model,
       messages: [
@@ -187,14 +185,7 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
     }
     applyOptionalMaxTokens(body, cfg.maxTokens)
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + cfg.key
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: res } = await fetchProviderChat(cfg, body)
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
@@ -202,7 +193,7 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
     }
 
     const data = await res.json()
-    const content = data.choices?.[0]?.message?.content?.trim()
+    const content = extractProviderNonStreamText(cfg, data).trim()
     if (!content) {
       return { success: false, error: 'API 返回为空' }
     }

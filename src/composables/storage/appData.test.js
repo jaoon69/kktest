@@ -96,6 +96,33 @@ describe('appData theme defaults', () => {
     expect(normalized.settings.allowAIPlannerCapture).toBe(true)
   })
 
+  it('migrates legacy per-contact embedding API settings to global settings', () => {
+    const prepared = prepareLoadedAppData({
+      contacts: [
+        {
+          id: 'contact_1',
+          memorySettings: {
+            vectorSearchEnabled: true,
+            embeddingApiUrl: 'https://embedding.example.com/v1',
+            embeddingApiKey: 'secret',
+            embeddingModel: 'embed-v3',
+            embeddingDimensions: 1024
+          }
+        }
+      ],
+      settings: {}
+    })
+
+    expect(prepared.needsSave).toBe(true)
+    expect(prepared.appliedMigrations).toContain('global-embedding-api-settings')
+    expect(prepared.data.settings).toMatchObject({
+      embeddingApiUrl: 'https://embedding.example.com/v1',
+      embeddingApiKey: 'secret',
+      embeddingModel: 'embed-v3',
+      embeddingDimensions: 1024
+    })
+  })
+
   it('marks legacy planner and whisper settings as migrations that need saving', () => {
     const prepared = prepareLoadedAppData({
       settings: {
@@ -180,6 +207,12 @@ describe('appData theme defaults', () => {
     expect(normalized.settings.toolCallingConfig.mcpDirectServers).toEqual([
       { id: 'direct_notion', name: 'Notion', url: 'https://mcp.example.com/notion', apiKey: 'secret', enabled: true }
     ])
+    expect(normalized.settings.toolCallingConfig.webSearch).toMatchObject({
+      enabled: false,
+      provider: 'tavily',
+      cacheEnabled: true,
+      apiKeys: { tavily: '', exa: '', firecrawl: '' }
+    })
   })
 
   it('normalizes API provider config fields and preserves old configs as OpenAI-compatible', () => {

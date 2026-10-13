@@ -5,12 +5,14 @@
  *   name            — OpenAI function name
  *   description     — shown to the model
  *   parameters      — JSON Schema for arguments
- *   settingsGuard   — settings boolean key; tool is excluded when falsy
+ *   settingsGuard   — settings boolean key, or (settingsStore) => boolean; tool is excluded when falsy
+ *   displayName     — optional short label for tool log cards (defaults to description)
  *   execute(args, ctx) — handler returning { success, result?, error? }
  *
  * ctx contains: { contactsStore, settingsStore, momentsStore, musicStore,
  *   plannerStore, livenessStore, stickersStore, activeChat, makeMsgId }
  */
+import { getWebSearchConfig, isWebSearchAvailable } from '../../../utils/webSearchConfig'
 
 const DIARY_ASSISTANT_VIEWPOINT_PATTERNS = [
   /作为\s*(?:ai|人工智能|助手)/i,
@@ -142,6 +144,66 @@ const TOOL_DEFINITIONS = [
       if (typeof args.affection === 'number') patch.affection = args.affection
       livenessStore.adjustState(activeChat.id, patch)
       return { success: true, result: { updated: Object.keys(patch) } }
+    }
+  },
+
+  // ── 联网搜索 ──
+  {
+    name: 'web_search',
+    displayName: '联网搜索',
+    description: '联网搜索最新信息（新闻、实时数据、你不确定或可能过时的事实）。返回标题、链接和摘要；相同搜索会自动走缓存。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词，尽量简洁具体' },
+        max_results: { type: 'integer', description: '返回条数 1-10，可选，默认按设置' },
+        topic: { type: 'string', enum: ['general', 'news'], description: '新闻类问题用 news，可选' },
+        time_range: { type: 'string', enum: ['day', 'week', 'month', 'year'], description: '只看最近一段时间的结果，可选' }
+      },
+      required: ['query']
+    },
+    settingsGuard: (settingsStore) => isWebSearchAvailable(settingsStore, 'search'),
+    async execute(args, ctx) {
+      const { getWebSearchService } = await import('../../webSearch/webSearchService')
+      const { formatSearchResultText } = await import('../../webSearch/formatResults')
+      const result = await getWebSearchService().search(getWebSearchConfig(ctx.settingsStore), {
+        query: args.query,
+        maxResults: args.max_results,
+        topic: args.topic,
+        timeRange: args.time_range
+      })
+      return {
+        success: true,
+        result: { text: formatSearchResultText(result), provider: result.provider, cached: result.cached }
+      }
+    }
+  },
+  {
+    name: 'web_scrape',
+    displayName: '读取网页',
+    description: '读取一个网页的正文（Markdown）。用于用户发来链接，或需要查看搜索结果详情时；长页面可传 offset 分段读取，已读过的网页会走缓存。',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '完整网址（http/https）' },
+        offset: { type: 'integer', description: '从第几个字符开始读，用于续读长网页，可选' }
+      },
+      required: ['url']
+    },
+    settingsGuard: (settingsStore) => isWebSearchAvailable(settingsStore, 'scrape'),
+    async execute(args, ctx) {
+      const { getWebSearchService } = await import('../../webSearch/webSearchService')
+      const { formatScrapeResultText } = await import('../../webSearch/formatResults')
+      const config = getWebSearchConfig(ctx.settingsStore)
+      const result = await getWebSearchService().scrape(config, { url: args.url })
+      return {
+        success: true,
+        result: {
+          text: formatScrapeResultText(result, { offset: args.offset, maxChars: config.scrapeMaxChars }),
+          provider: result.provider,
+          cached: result.cached
+        }
+      }
     }
   }
 ]

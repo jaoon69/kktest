@@ -7,6 +7,7 @@
 
 import { useConfigsStore } from '../stores/configs'
 import { usePersonasStore } from '../stores/personas'
+import { useSettingsStore } from '../stores/settings'
 import { estimateTokens } from '../utils/tokens'
 import { addCoreMemory, checkKeywordTrigger, deleteCoreMemory, updateCoreMemory } from './memory/coreMemory'
 import { refreshContextSummary as refreshContextSummaryImpl } from './memory/contextSummary'
@@ -49,6 +50,7 @@ function createMemoryStoreAdapter(configsStore, personasStore) {
 export function useMemory() {
   const configsStore = useConfigsStore()
   const personasStore = usePersonasStore()
+  const settingsStore = useSettingsStore()
   const memoryStore = createMemoryStoreAdapter(configsStore, personasStore)
 
   // contactId -> in-flight / cooldown. Kept in-memory only (no persistence).
@@ -179,7 +181,7 @@ export function useMemory() {
 
     // Realtime vector indexing — embed new conversation rounds after each reply
     if (settings.vectorSearchEnabled && settings.vectorIndexMode === 'realtime') {
-      const embConfig = getEmbeddingConfig(contact)
+      const embConfig = getEmbeddingConfig(contact, settingsStore)
       if (embConfig) {
         import('./retrieval/useHistorySearch.js').then(({ ensureRoundVectors }) => {
           ensureRoundVectors(contact, contact.msgs, embConfig).then(() => {

@@ -238,4 +238,61 @@ describe('toolAwareStreamingRequest', () => {
       })
     )
   })
+
+  it('continues multiple Responses search rounds with matching calls, results and native reasoning items', async () => {
+    const provider = await vi.importActual('./providerRequest')
+    buildProviderChatPayloadMock.mockImplementation(provider.buildProviderChatPayload)
+    consumeProviderChatStreamMock.mockReset()
+    consumeProviderChatStreamMock.mockImplementation(provider.consumeProviderChatStream)
+    const firstOutput = [
+      { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'encrypted_1' },
+      { type: 'message', id: 'msg_1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Searching', annotations: [] }] },
+      { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'web_search', arguments: '{"query":"cats"}', status: 'completed' }
+    ]
+    const secondOutput = [
+      { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'encrypted_2' },
+      { type: 'function_call', id: 'fc_2', call_id: 'call_2', name: 'web_search', arguments: '{"query":"cat care"}', status: 'completed' }
+    ]
+    const createSearchResponse = output => {
+      const frames = output.flatMap((item, output_index) => [
+        { type: 'response.output_item.added', output_index, item: item.type === 'function_call' ? { ...item, arguments: '', status: 'in_progress' } : item },
+        ...(item.type === 'function_call' ? [
+          { type: 'response.function_call_arguments.delta', output_index, item_id: item.id, delta: item.arguments },
+          { type: 'response.function_call_arguments.done', output_index, item_id: item.id, arguments: item.arguments }
+        ] : []),
+        { type: 'response.output_item.done', output_index, item }
+      ])
+      frames.push({ type: 'response.completed', response: { status: 'completed', output } })
+      return new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join(''))
+    }
+    fetchProviderChatMock
+      .mockResolvedValueOnce({ request: { targetUrl: 'https://api.test/v1/responses' }, response: createSearchResponse(firstOutput) })
+      .mockResolvedValueOnce({ request: { targetUrl: 'https://api.test/v1/responses' }, response: createSearchResponse(secondOutput) })
+      .mockResolvedValueOnce({ request: { targetUrl: 'https://api.test/v1/responses' }, response: new Response('data: {"type":"response.output_text.delta","delta":"Search complete"}\n\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n') })
+    executeToolCallsMock.mockImplementation(async calls => ({
+      messages: calls.map(call => ({ role: 'tool', tool_call_id: call.id, content: `Results for ${call.id}` })),
+      logs: []
+    }))
+    const activeChat = { msgs: [] }
+    const userMessage = { role: 'user', content: 'Search for cats' }
+    const result = await executeToolAwareStreamedRequest({
+      cfg: { url: 'https://api.test/v1', key: 'k', model: 'gpt-test', apiFormat: 'responses' },
+      messages: [userMessage], activeChat,
+      makeMsgId: () => 'msg_1', traceId: 'trace_search', onChunk: vi.fn(),
+      createStreamChunkBatcher: message => ({ push: delta => { message.content += delta }, flushNow: vi.fn() }),
+      tools: [{ type: 'function', function: { name: 'web_search', parameters: { type: 'object', properties: {} } } }],
+      toolContext: {}, maxToolRounds: 2
+    })
+
+    expect(fetchProviderChatMock).toHaveBeenCalledTimes(3)
+    expect(executeToolCallsMock.mock.calls.map(([calls]) => calls.map(call => call.id))).toEqual([['call_1'], ['call_2']])
+    const firstResult = { type: 'function_call_output', call_id: 'call_1', output: 'Results for call_1' }
+    const secondResult = { type: 'function_call_output', call_id: 'call_2', output: 'Results for call_2' }
+    expect(fetchProviderChatMock.mock.calls[1][1].body.input).toEqual([userMessage, ...firstOutput, firstResult])
+    expect(fetchProviderChatMock.mock.calls[2][1].body.input).toEqual([userMessage, ...firstOutput, firstResult, ...secondOutput, secondResult])
+    expect(fetchProviderChatMock.mock.calls[2][1].body.tool_choice).toBe('none')
+    expect(fetchProviderChatMock.mock.calls[2][1].body.tools[0].name).toBe('web_search')
+    expect(result.streamMsg.content).toBe('SearchingSearch complete')
+    expect(activeChat.msgs).toHaveLength(1)
+  })
 })

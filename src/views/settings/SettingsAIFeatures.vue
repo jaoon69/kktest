@@ -96,6 +96,13 @@
       <span class="w-28 text-[16px] text-[var(--text-primary)] shrink-0">音乐搜索</span>
       <input v-model="store.musicSearchApiUrl" class="flex-1 text-right text-[var(--text-primary)] bg-transparent outline-none min-w-0 text-[14px]" placeholder="留空使用内置音源" @change="scheduleSave" />
     </div>
+    <div class="px-4 py-3 flex justify-between items-center border-t border-[var(--border-color)]">
+      <div class="flex flex-col pr-3">
+        <span class="text-[17px] text-[var(--text-primary)]">智能界面</span>
+        <span class="text-[12px] text-[var(--text-secondary)]">单聊中 AI 可在合适时发送可交互的卡片：滑块计算、图表、选项、小游戏等</span>
+      </div>
+      <IosToggle v-model="store.allowAIIntelligentUI" @update:modelValue="scheduleSave" />
+    </div>
     <div class="flex items-center px-4 py-3 border-t border-[var(--border-color)]">
       <span class="w-28 text-[16px] text-[var(--text-primary)] shrink-0">时区设置</span>
       <select v-model="store.timeZoneMode" class="flex-1 text-[var(--primary-color)] bg-transparent outline-none text-right" @change="handleTimeZoneModeChange">

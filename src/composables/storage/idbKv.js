@@ -155,6 +155,10 @@ export async function idbDelete(key) {
   return deleteFromStore(STORE_KV, key)
 }
 
+export async function idbDeleteMany(keys) {
+  return deleteManyFromStore(STORE_KV, keys)
+}
+
 export async function idbMessagesGet(key) {
   return getFromStore(STORE_MESSAGES, key)
 }

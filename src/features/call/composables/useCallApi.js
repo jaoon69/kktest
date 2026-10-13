@@ -8,9 +8,8 @@ import { useSettingsStore } from '../../../stores/settings'
 import { usePromptContext } from '../../../composables/api/promptContext'
 import { createApiError, createApiFailureResult } from '../../../composables/api/errors'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
-import { fetchOpenAICompat, readOpenAICompatError } from '../../../composables/api/openaiCompat'
+import { fetchProviderChat, readProviderChatError, consumeProviderChatStream } from '../../../composables/api/providerRequest'
 import { getTemplateVars, applyTemplateVars, buildTimestampSystemPrompt } from '../../../composables/api/prompts'
-import { consumeChatCompletionsStream } from '../../../composables/api/stream'
 import { useCallState } from './useCallState'
 import { makeId } from '../../../utils/id'
 
@@ -202,17 +201,14 @@ export function useCallApi() {
       const temperature = Number(cfg.temperature)
       payload.temperature = Number.isFinite(temperature) ? temperature : 0.8
 
-      const { response: res } = await fetchOpenAICompat(cfg.url, {
-        apiKey: cfg.key,
-        body: payload
-      })
+      const { response: res } = await fetchProviderChat(cfg, payload)
 
       if (!res.ok) {
-        throw new Error(await readOpenAICompatError(res))
+        throw new Error(await readProviderChatError(cfg, res))
       }
 
       let fullText = ''
-      await consumeChatCompletionsStream(res, (delta) => {
+      await consumeProviderChatStream(cfg, res, (delta) => {
         fullText += delta
         if (onDelta) onDelta(delta)
       })

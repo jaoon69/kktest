@@ -2,13 +2,43 @@ import { isReservedPromptPresetBook } from '../../../utils/presetPromptBooks'
 import { applyTemplateVars } from './templateVars'
 import { matchesLorebookKeyword, prepareKeywordMatchContext } from './lorebookKeywordMatch'
 
+function matchesEntryKeyword(context, keyword, entry) {
+  if (!entry.useRegex) return matchesLorebookKeyword(context, keyword, { caseSensitive: entry.caseSensitive === true })
+  if (typeof keyword !== 'string' || !keyword.trim()) return false
+  try {
+    const literal = keyword.match(/^\/(.*)\/([dgimsuvy]*)$/s)
+    const pattern = literal ? literal[1] : keyword
+    const flags = literal ? literal[2] : entry.caseSensitive ? '' : 'i'
+    return new RegExp(pattern, flags).test(context.raw)
+  } catch {
+    return false
+  }
+}
+
+function matchesSecondaryKeywords(context, entry) {
+  const keywords = Array.isArray(entry.secondaryKeywords) ? entry.secondaryKeywords : []
+  if (!entry.selective || keywords.length === 0) return true
+  const matches = keywords.map(keyword => matchesEntryKeyword(context, keyword, entry))
+  switch (entry.selectiveLogic) {
+    case 1: return !matches.every(Boolean) // NOT_ALL
+    case 2: return !matches.some(Boolean) // NOT_ANY
+    case 3: return matches.every(Boolean) // AND_ALL
+    default: return matches.some(Boolean) // AND_ANY
+  }
+}
+
 function getActiveLorebookEntries(store) {
   if (!store.activeChat) return []
 
-  const recentMessages = store.activeChat.msgs.slice(-10)
-    .map(m => typeof m?.content === 'string' ? m.content : '')
-    .join(' ')
-  const matchContext = prepareKeywordMatchContext(recentMessages)
+  const contexts = new Map()
+  const getMatchContext = (depth = 10) => {
+    if (!contexts.has(depth)) {
+      const messages = Array.isArray(store.activeChat.msgs) ? store.activeChat.msgs : []
+      contexts.set(depth, prepareKeywordMatchContext((depth > 0 ? messages.slice(-depth) : [])
+        .map(m => typeof m?.content === 'string' ? m.content : '').join(' ')))
+    }
+    return contexts.get(depth)
+  }
   const activeEntries = []
   const activeBookIds = new Set()
   const presetBookIds = new Set(
@@ -41,8 +71,9 @@ function getActiveLorebookEntries(store) {
       }
 
       if (keywords.length > 0) {
-        const hasMatch = keywords.some(keyword => matchesLorebookKeyword(matchContext, keyword))
-        if (hasMatch) {
+        const matchContext = getMatchContext(entry.scanDepth ?? book.scanDepth ?? 10)
+        const hasMatch = keywords.some(keyword => matchesEntryKeyword(matchContext, keyword, entry))
+        if (hasMatch && matchesSecondaryKeywords(matchContext, entry)) {
           activeEntries.push(entry)
         }
       }

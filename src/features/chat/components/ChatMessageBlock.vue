@@ -56,6 +56,16 @@
     :show-chat-avatars="showChatAvatars"
   />
 
+  <ChatSmartUIBlock
+    v-else-if="block.type === 'smartUI'"
+    :block="block"
+    :multi-select-mode="multiSelectMode"
+    :selected="selected"
+    :show-chat-avatars="showChatAvatars"
+    @toggle-select="emit('toggle-select', $event)"
+    @context-menu="forwardContextMenu"
+  />
+
   <div
     v-else-if="block.type === 'offlineCard'"
     class="flex justify-center my-3"
@@ -99,12 +109,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from 'vue'
 import ChatAgentTraceBlock from './message-blocks/ChatAgentTraceBlock.vue'
 import ChatActionBlock from './message-blocks/ChatActionBlock.vue'
 import ChatBubbleBlock from './message-blocks/ChatBubbleBlock.vue'
 import ChatMediaBlock from './message-blocks/ChatMediaBlock.vue'
 import ChatMultiSelectCheckbox from './message-blocks/ChatMultiSelectCheckbox.vue'
+// 智能界面渲染器体积较大，只在聊天里真正出现 <ui> 时才加载
+const ChatSmartUIBlock = defineAsyncComponent(() => import('./message-blocks/ChatSmartUIBlock.vue'))
 import { formatBeijingLocale } from '../../../utils/beijingTime'
 import './ChatMessageBlock.css'
 

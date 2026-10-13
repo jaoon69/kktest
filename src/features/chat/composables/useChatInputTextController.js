@@ -28,6 +28,7 @@ export function useChatInputTextController(options) {
   const {
     modelValue,
     showMicButton,
+    hasPendingImages,
     inputEl,
     contactsStore,
     stickersStore,
@@ -37,6 +38,8 @@ export function useChatInputTextController(options) {
   } = options
 
   const hasInput = computed(() => !!String(modelValue.value || '').trim())
+  // 麦克风只在“真的没东西可发”时替换发送键：已附加图片时必须仍能发送
+  const micActive = computed(() => !!showMicButton.value && !hasInput.value && !hasPendingImages?.value)
   const selectedCandidateIdx = ref(0)
   const lastLocalModelValue = ref(null)
   const suggestionInputValue = ref('')
@@ -70,7 +73,7 @@ export function useChatInputTextController(options) {
     const hadInput = hasInput.value
     closeMenu()
 
-    if (showMicButton.value && !hadInput) {
+    if (micActive.value) {
       emit('openVoice')
       return
     }
@@ -286,6 +289,7 @@ export function useChatInputTextController(options) {
 
   return {
     hasInput,
+    micActive,
     selectedCandidateIdx,
     stickerCandidates,
     focusInputSoon,

@@ -71,7 +71,19 @@ export const SETTINGS_SNAPSHOT_FIELD_DEFINITIONS = Object.freeze([
   { key: 'allowAICall', normalize: (value) => value !== false },
   { key: 'allowAIMockImage', normalize: (value) => !!value },
   { key: 'allowAIMusicRecommend', normalize: (value) => !!value },
+  { key: 'allowAIIntelligentUI', normalize: (value) => !!value },
   { key: 'musicSearchApiUrl', normalize: (value) => value || '' },
+  { key: 'embeddingApiUrl', normalize: (value) => typeof value === 'string' ? value : '' },
+  { key: 'embeddingApiKey', normalize: (value) => typeof value === 'string' ? value : '' },
+  { key: 'embeddingModel', normalize: (value) => typeof value === 'string' ? value : '' },
+  {
+    key: 'embeddingDimensions',
+    normalize: (value) => {
+      const dimensions = Number(value)
+      if (!Number.isFinite(dimensions)) return 0
+      return Math.max(0, Math.min(8192, Math.round(dimensions)))
+    }
+  },
   { key: 'enableWeatherContext', normalize: (value) => !!value },
   { key: 'weatherLocationMode', normalize: (value) => value === 'manual' ? 'manual' : 'auto' },
   { key: 'weatherManualCity', normalize: (value) => value || '' },

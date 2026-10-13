@@ -447,11 +447,12 @@ export const presetThemes = [
     preview: {
       bg: 'linear-gradient(160deg, #BFD5FF 0%, #D8CDFF 45%, #FFD6E8 100%)',
       userBubble: '#0A84FF',
-      aiBubble: 'rgba(255,255,255,0.85)'
+      aiBubble: 'rgba(255,255,255,0.7)'
     },
     data: {
       inputPlaceholder: 'iMessage 信息',
-      showMicButton: true,
+      // 不开 showMicButton：空输入时保留灰色发送箭头（可点击=空发送催回复），
+      // 麦克风会替换发送键导致空发送入口丢失
       headerActions: ['video'],
 
       primaryColor: '#0A84FF',
@@ -459,22 +460,56 @@ export const presetThemes = [
       // .dark 的暗色变量导致深色模式失效，玻璃质感统一在 customCSS 里分深浅色实现
       bubbleUserBg: '#0A84FF',
       bubbleUserText: '#FFFFFF',
-      bubbleAiBg: 'rgba(255,255,255,0.97)',
-      bubbleAiText: '#0B1220',
+      bubbleAiBg: 'rgba(255,255,255,0.60)',
+      bubbleAiText: '#000000',
       bubbleRadius: '20px',
-      bubbleShadow: '0 1px 1px rgba(20,30,50,0.05), 0 6px 18px rgba(20,30,50,0.07)',
+      bubbleShadow: 'none',
 
-      inputBg: 'rgba(255,255,255,0.62)',
-      inputBorder: 'rgba(255,255,255,0.65)',
-      inputRadius: '22px',
+      inputBg: 'transparent',
+      inputBorder: 'transparent',
+      inputRadius: '20px',
 
       buttonRadius: '16px',
-      fontSize: '16px',
       globalRadius: '18px',
 
-      customCSS: `/* 液态玻璃 (iOS 26) —— 折射玻璃材质 / 悬浮胶囊 / 高光描边 */
+      customCSS: `/* 液态玻璃 (iOS 26) —— 复刻 iOS 26 信息：全屏壁纸 / 悬浮玻璃控件 / 无边框气泡 */
 
-/* === 聊天背景：柔和多色渐变 + 光斑 === */
+/* === 玻璃材质：深浅色各一套变量，所有悬浮控件共用 === */
+:root {
+  --lg-fill: rgba(255,255,255,0.38);
+  --lg-fill-solid: rgba(246,246,248,0.92);
+  --lg-card: rgba(255,255,255,0.72);
+  --lg-rim: inset 1.5px 1.5px 1px -1px rgba(255,255,255,0.95), inset -1.5px -1.5px 1px -1px rgba(255,255,255,0.70), inset 0 0 0 0.5px rgba(255,255,255,0.40), inset 0 0 16px rgba(255,255,255,0.18);
+  --lg-drop: 0 6px 20px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06);
+  --lg-blur: blur(10px) saturate(1.8) brightness(1.08);
+  --lg-ink: #000;
+  --lg-ink-soft: rgba(60,60,67,0.62);
+  --lg-scrim: rgba(255,255,255,0.45);
+  --lg-badge-bg: rgba(0,0,0,0.78);
+  --lg-badge-ink: #fff;
+  --lg-bubble-hl: rgba(255,255,255,0.85);
+  --lg-bubble-blur: blur(14px) saturate(1.8) brightness(1.06);
+}
+html.dark {
+  --lg-fill: rgba(28,28,32,0.30);
+  --lg-fill-solid: rgba(38,38,42,0.92);
+  --lg-card: rgba(30,30,34,0.66);
+  --lg-rim: inset 1.5px 1.5px 1px -1px rgba(255,255,255,0.60), inset -1.5px -1.5px 1px -1px rgba(255,255,255,0.30), inset 0 0 0 0.5px rgba(255,255,255,0.12), inset 0 0 16px rgba(255,255,255,0.05);
+  --lg-drop: 0 8px 24px rgba(0,0,0,0.35);
+  --lg-blur: blur(10px) saturate(1.6) brightness(0.82);
+  --lg-ink: #fff;
+  --lg-ink-soft: rgba(235,235,245,0.62);
+  --lg-scrim: rgba(0,0,0,0.38);
+  --lg-badge-bg: rgba(255,255,255,0.88);
+  --lg-badge-ink: #000;
+  /* 深色 AI 气泡：半透明灰玻璃，透出壁纸（inline 主题变量压不过 !important） */
+  --lg-bubble-hl: rgba(255,255,255,0.14);
+  --lg-bubble-blur: blur(14px) saturate(1.6) brightness(0.9);
+  --bubble-ai-bg: rgba(52,52,56,0.58) !important;
+  --bubble-ai-text: #FFFFFF !important;
+}
+
+/* === 背景：无壁纸时用柔和渐变；联系人壁纸（内联样式）仍优先 === */
 .chat-view {
   background-image:
     radial-gradient(1200px 800px at 85% -10%, rgba(255,214,232,0.55), transparent 60%),
@@ -487,12 +522,29 @@ export const presetThemes = [
     radial-gradient(1000px 700px at -15% 30%, rgba(30,50,95,0.55), transparent 55%),
     linear-gradient(160deg, #0B0F1A 0%, #131226 55%, #1A1024 100%);
 }
-/* 消息容器透明化，露出渐变；联系人自定义壁纸为内联样式，仍优先生效 */
+/* 导航悬浮不占布局，消息区从屏幕顶端开始，预留头像+名字胶囊高度 */
 .chat-messages {
   background-color: transparent !important;
+  padding-top: calc(var(--app-pt, 0px) + 88px) !important;
 }
+.chat-view:has(> .chat-header.is-group) .chat-messages {
+  padding-top: calc(var(--app-pt, 0px) + 104px) !important;
+}
+/* 消息区延伸到输入栏下方：壁纸铺满全屏、气泡从悬浮输入框下滑过。
+   回复条/图片预览/群成员栏出现时（输入框不再紧跟消息区）自动退回普通布局；
+   不支持 :has() 的旧内核同样退回普通布局 */
+.chat-view > div:has(> .chat-messages):has(+ .chat-input-wrapper) {
+  margin-bottom: calc(-48px - var(--app-pb, 0px));
+}
+.chat-view > div:has(> .chat-messages):has(+ .chat-input-wrapper) > .chat-messages {
+  padding-bottom: calc(58px + var(--app-pb, 0px)) !important;
+}
+.chat-view > div:has(> .chat-messages):has(+ .chat-input-wrapper) > button {
+  bottom: calc(60px + var(--app-pb, 0px)) !important;
+}
+.chat-input-wrapper { position: relative; z-index: 20; }
 
-/* === 全局玻璃面板（信息列表等非聊天页头部；深浅色都要覆盖） === */
+/* === 全局玻璃面板（信息列表等非聊天页头部） === */
 .glass-panel:not(.chat-header) {
   background-color: rgba(255,255,255,0.60) !important;
   backdrop-filter: blur(24px) saturate(1.5) !important;
@@ -503,145 +555,300 @@ export const presetThemes = [
   border-bottom-color: rgba(255,255,255,0.08) !important;
 }
 
-/* === 顶部导航：悬浮玻璃层 === */
-.chat-header {
-  background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.45)) !important;
-  backdrop-filter: blur(28px) saturate(1.7) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(1.7) !important;
-  border-bottom: 0.5px solid rgba(255,255,255,0.55) !important;
-  box-shadow: 0 8px 24px rgba(30,40,70,0.06) !important;
+/* === 悬浮玻璃控件：返回 / 名字胶囊 / 视频 / 加号 / 输入框 === */
+.chat-header-back,
+.chat-header-action,
+.chat-header-name,
+.chat-input-plus,
+.chat-input-field {
+  background: var(--lg-fill) !important;
+  border: none !important;
+  box-shadow: var(--lg-rim), var(--lg-drop) !important;
+  backdrop-filter: var(--lg-blur) !important;
+  -webkit-backdrop-filter: var(--lg-blur) !important;
 }
-.dark .chat-header {
-  background: linear-gradient(180deg, rgba(22,27,38,0.72), rgba(22,27,38,0.50)) !important;
-  border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
+.chat-header-back:active,
+.chat-header-action:active,
+.chat-input-plus:active {
+  transform: scale(0.92);
 }
-
-/* === 气泡：玻璃质感（半透明 + 内高光描边，不用 backdrop-filter 保证长列表流畅） === */
-.bubble-ai {
-  border: 0.5px solid rgba(255,255,255,0.75) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 1px 1px rgba(20,30,50,0.05), 0 6px 18px rgba(20,30,50,0.07) !important;
-}
-.dark .bubble-ai {
-  background-color: rgba(48,50,60,0.96) !important;
-  color: #F2F5FA !important;
-  border: 0.5px solid rgba(255,255,255,0.10) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.35) !important;
-}
-.dark .bubble-ai.has-tail::before {
-  background-color: rgba(48,50,60,0.96) !important;
-}
-.dark .voice-bubble-ai {
-  background: rgba(48,50,60,0.96) !important;
-  border-color: rgba(255,255,255,0.10) !important;
-}
-.bubble-user {
-  background-image: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0) 78%);
-  border: 0.5px solid rgba(255,255,255,0.32) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 18px rgba(10,60,140,0.22) !important;
-}
-.dark .bubble-ai .reply-context { background: rgba(255,255,255,0.10); }
-
-/* === 时间戳：玻璃胶囊 === */
-.chat-timestamp {
-  display: table;
-  margin: 10px auto;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.50);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 0.5px solid rgba(255,255,255,0.60);
-  box-shadow: 0 2px 8px rgba(30,40,70,0.06);
-  color: rgba(60,70,90,0.85) !important;
-}
-.dark .chat-timestamp {
-  background: rgba(30,34,44,0.55);
-  border-color: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.65) !important;
-}
-
-/* === 旁白：玻璃卡片 === */
-.narration {
-  background: rgba(255,255,255,0.55) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 0.5px solid rgba(255,255,255,0.60) !important;
-  color: #46506A !important;
-}
-.dark .narration {
-  background: rgba(28,32,42,0.60) !important;
-  border-color: rgba(255,255,255,0.08) !important;
-  color: #C4CBD8 !important;
-}
-
-/* === 输入区：底栏透明，胶囊悬浮（消息从玻璃胶囊下方滑过） === */
-.glass-input-area {
-  background: transparent !important;
-  border-top: none !important;
+/* 无模糊时（键盘弹起的性能降级 / 不支持 backdrop-filter）换更实的底色保证可读 */
+:root.keyboard-open .chat-header-back,
+:root.keyboard-open .chat-header-action,
+:root.keyboard-open .chat-header-name,
+:root.keyboard-open .chat-input-plus,
+:root.keyboard-open .chat-input-field {
+  background: var(--lg-fill-solid) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-.chat-input-field {
-  background: linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.50)) !important;
-  border: 0.5px solid rgba(255,255,255,0.80) !important;
-  border-radius: 22px !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.80), 0 4px 16px rgba(30,40,70,0.12) !important;
-  backdrop-filter: blur(24px) saturate(1.6) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
-}
-.dark .chat-input-field {
-  background: linear-gradient(180deg, rgba(40,44,56,0.72), rgba(40,44,56,0.55)) !important;
-  border: 0.5px solid rgba(255,255,255,0.14) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 4px 16px rgba(0,0,0,0.40) !important;
-}
-
-/* 加号：独立玻璃圆钮（对应 iOS 26 悬浮圆形按钮） */
-.chat-input-plus {
-  background: rgba(255,255,255,0.60) !important;
-  border: 0.5px solid rgba(255,255,255,0.80);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.80), 0 4px 14px rgba(30,40,70,0.12);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  color: #3A4356 !important;
-}
-.dark .chat-input-plus {
-  background: rgba(40,44,56,0.65) !important;
-  border-color: rgba(255,255,255,0.14);
-  color: #E6EAF2 !important;
-}
-
-/* 发送键：液态蓝玻璃 */
-.chat-input-send-icon {
-  background: linear-gradient(180deg, #3E9BFF, #0A84FF) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.50), 0 3px 10px rgba(10,132,255,0.45) !important;
-}
-.chat-input-mic { color: #5F6B7A !important; }
-.dark .chat-input-mic { color: #9AA4B2 !important; }
-
-/* 渐变背景上的消息时间 */
-.msg-meta { color: rgba(80,90,110,0.75) !important; }
-.dark .msg-meta { color: rgba(200,208,220,0.55) !important; }
-
-/* 移动端性能兜底：触屏设备关闭大面积 backdrop-filter，换更实的底色
-   （对齐 style.css 的 GPU 性能守护，模糊效果保留给桌面端） */
-@media (hover: none) and (pointer: coarse) {
-  .chat-timestamp {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: rgba(255,255,255,0.72);
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .chat-header-back,
+  .chat-header-action,
+  .chat-header-name,
+  .chat-input-plus,
+  .chat-input-field {
+    background: var(--lg-fill-solid) !important;
   }
-  .dark .chat-timestamp { background: rgba(30,34,44,0.78); }
-  .chat-header, .chat-input-field, .chat-input-plus, .glass-panel {
+}
+
+/* === 顶部导航：导航条本体透明，只留悬浮控件 === */
+.chat-header {
+  position: absolute !important;
+  top: 0 !important; left: 0 !important; right: 0 !important;
+  background: transparent !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  min-height: 0 !important;
+  pointer-events: none !important;
+}
+/* 滚动边缘：消息滑入导航区时渐隐，控件始终清晰 */
+.chat-header::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: calc(var(--app-pt, 0px) + 96px);
+  background: linear-gradient(to bottom, var(--lg-scrim), transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+.chat-header .chat-header-inner {
+  align-items: flex-start !important;
+  padding: calc(var(--app-pt, 0px) + 4px) 14px 0 !important;
+}
+/* 返回：圆形玻璃钮，有未读时伸长成胶囊 */
+.chat-header-back {
+  pointer-events: auto !important;
+  height: 44px;
+  min-width: 44px;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px 0 8px !important;
+  border-radius: 999px;
+  color: var(--lg-ink) !important;
+  transition: transform 0.2s ease, opacity 0.2s ease !important;
+}
+.chat-header-back > i { font-size: 22px !important; }
+.chat-header-badge {
+  margin-left: 0 !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  padding: 0 6px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  background: var(--lg-badge-bg) !important;
+  color: var(--lg-badge-ink) !important;
+  box-shadow: none !important;
+}
+/* 中间：大头像 + 下方名字玻璃胶囊 */
+.chat-header-center {
+  pointer-events: auto !important;
+  position: absolute !important;
+  inset: auto !important;
+  top: calc(var(--app-pt, 0px) + 2px) !important;
+  left: 50% !important;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 58%;
+  padding: 0 !important;
+}
+.chat-header-avatar {
+  width: 54px !important;
+  height: 54px !important;
+  margin-bottom: -5px !important;
+  position: relative;
+  z-index: 1;
+  font-size: 28px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18) !important;
+}
+.chat-header-name {
+  opacity: 1 !important;
+  max-width: 100%;
+  padding: 7px 13px 4px;
+  border-radius: 999px;
+}
+.chat-header-name-text {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  color: var(--lg-ink) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-header-name-arrow { display: none !important; }
+.chat-header-subtitle {
+  margin-top: 4px !important;
+  opacity: 1 !important;
+  font-weight: 500;
+  color: var(--lg-ink-soft) !important;
+}
+/* 右侧：圆形玻璃钮 */
+.chat-header-actions {
+  pointer-events: auto !important;
+  gap: 10px !important;
+  padding-right: 0 !important;
+  color: var(--lg-ink) !important;
+}
+.chat-header-action {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 999px !important;
+  transition: transform 0.2s ease !important;
+}
+.chat-header-action > i { font-size: 22px !important; }
+
+/* === 气泡 === */
+.bubble { border: none !important; }
+/* 用户气泡：iMessage 蓝 + 顶部釉面柔光（渐变在下部收成纯色，与尾巴无缝） */
+.bubble-user {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0) 72%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.40) !important;
+}
+/* AI 气泡：磨砂玻璃。底色+模糊放在 ::after 底板上，尾巴 ::before 同样模糊，
+   两块互不重叠，拼起来是一整块玻璃 */
+.bubble-ai {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.bubble-ai::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: var(--bubble-ai-bg);
+  box-shadow: inset 0 1px 0 var(--lg-bubble-hl);
+  backdrop-filter: var(--lg-bubble-blur);
+  -webkit-backdrop-filter: var(--lg-bubble-blur);
+}
+/* 新消息入场动画的 will-change: opacity 会截断模糊取景，玻璃气泡上关掉 */
+.bubble-ai.bubble-appear { will-change: transform; }
+/* 长按聚焦的克隆气泡会隐藏 ::after，给回实底 */
+.focused-bubble-wrapper .bubble-ai { background-color: var(--bubble-ai-bg) !important; }
+/* 尾巴形状不变，只截掉与气泡重叠的那一截（半透明叠两层会出深色角） */
+.bubble-ai.has-tail { border-bottom-left-radius: 0 !important; }
+.bubble-ai.has-tail::before {
+  backdrop-filter: var(--lg-bubble-blur);
+  -webkit-backdrop-filter: var(--lg-bubble-blur);
+  width: 8px !important;
+  border-radius: 0 !important;
+  -webkit-mask-image:
+    radial-gradient(circle at -2px 10px, transparent 10px, #fff 10px),
+    linear-gradient(to bottom, transparent 10px, #fff 10px) !important;
+  mask-image:
+    radial-gradient(circle at -2px 10px, transparent 10px, #fff 10px),
+    linear-gradient(to bottom, transparent 10px, #fff 10px) !important;
+  -webkit-mask-composite: source-in !important;
+  mask-composite: intersect !important;
+}
+.bubble-ai .reply-context { background: rgba(0,0,0,0.07); }
+.dark .bubble-ai .reply-context { background: rgba(255,255,255,0.10); }
+/* 键盘弹起时停掉气泡模糊（安卓键盘动画掉帧），不支持模糊时换实底 */
+:root.keyboard-open .bubble-ai::after,
+:root.keyboard-open .bubble-ai.has-tail::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --bubble-ai-bg: rgba(236,236,240,0.95) !important; }
+  html.dark { --bubble-ai-bg: rgba(52,52,56,0.95) !important; }
+}
+
+/* === 时间戳 / 已送达：iOS 26 是纯文字，不加底板 === */
+.chat-timestamp {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  margin: 14px 0 8px !important;
+  color: var(--lg-ink-soft) !important;
+}
+.msg-meta {
+  font-weight: 600 !important;
+  color: var(--lg-ink-soft) !important;
+}
+.chat-sender-name { color: var(--lg-ink-soft) !important; }
+/* 有壁纸时文字改白色 + 阴影，任何壁纸上都看得清 */
+.chat-messages[style*="background-image"] .chat-timestamp,
+.chat-messages[style*="background-image"] .msg-meta,
+.chat-messages[style*="background-image"] .chat-sender-name {
+  color: rgba(255,255,255,0.92) !important;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.45);
+}
+
+/* === 旁白：轻玻璃卡片（数量多，不用 backdrop-filter） === */
+.narration {
+  background: var(--lg-card) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: var(--lg-rim) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--lg-ink-soft) !important;
+}
+
+/* === 输入区：底栏透明，加号与输入框各自悬浮 === */
+.glass-input-area {
+  background: linear-gradient(to top, var(--lg-scrim), transparent) !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+  gap: 10px !important;
+}
+.chat-input-plus {
+  width: 40px !important;
+  height: 40px !important;
+  margin-bottom: 0 !important;
+  color: var(--lg-ink) !important;
+  transition: transform 0.2s ease !important;
+}
+.chat-input-plus > i { font-size: 20px !important; }
+.chat-input-field {
+  min-height: 40px;
+  border-radius: 20px !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  padding-left: 16px !important;
+}
+.chat-input-send {
+  right: 5px !important;
+  bottom: 5px !important;
+}
+.chat-input-textarea::placeholder {
+  color: var(--lg-ink-soft) !important;
+  opacity: 1 !important;
+}
+/* 发送键：iMessage 蓝；空输入置灰但常驻可点（空发送 = 让 AI 回复） */
+.chat-input-send-icon {
+  background: #0A84FF !important;
+  box-shadow: none !important;
+}
+.chat-input-field:has(.chat-input-textarea:placeholder-shown) .chat-input-send-icon {
+  background: rgba(120,120,128,0.24) !important;
+  color: var(--lg-ink-soft) !important;
+}
+.dark .chat-input-field:has(.chat-input-textarea:placeholder-shown) .chat-input-send-icon {
+  background: rgba(235,235,245,0.16) !important;
+}
+
+/* 回到底部按钮 */
+.chat-messages ~ button {
+  background: var(--lg-fill-solid) !important;
+  border: none !important;
+  box-shadow: var(--lg-rim), var(--lg-drop) !important;
+}
+
+/* 移动端：非聊天页的整条玻璃面板改实底（大面积模糊最吃 GPU）；
+   聊天页的悬浮控件面积小，保留模糊 */
+@media (hover: none) and (pointer: coarse) {
+  .glass-panel:not(.chat-header) {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    background-color: rgba(255,255,255,0.92) !important;
   }
-  .chat-header { background: rgba(255,255,255,0.92) !important; }
-  .dark .chat-header { background: rgba(22,27,38,0.94) !important; }
-  .chat-input-field { background: rgba(255,255,255,0.92) !important; }
-  .dark .chat-input-field { background: rgba(40,44,56,0.94) !important; }
-  .chat-input-plus { background: rgba(255,255,255,0.85) !important; }
-  .dark .chat-input-plus { background: rgba(40,44,56,0.90) !important; }
-  .glass-panel:not(.chat-header) { background-color: rgba(255,255,255,0.92) !important; }
   .dark .glass-panel:not(.chat-header) { background-color: rgba(22,27,38,0.94) !important; }
 }`
     }

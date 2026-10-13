@@ -17,6 +17,7 @@ import { usePlannerStore } from '../stores/planner'
 import { useConfigsStore } from '../stores/configs'
 import { useSettingsStore } from '../stores/settings'
 import { applyOptionalMaxTokens } from './api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from './api/providerRequest'
 import { toLocalDateKey } from '../utils/dateKey'
 import { getBeijingTimeHHMM } from '../utils/beijingTime'
 
@@ -243,7 +244,6 @@ export async function generateDiaryReply(contact, diaryEntry) {
 
     const userText = `用户在${dateLabel}的日记${mood}${weather}：\n\n${diaryEntry.content}\n\n请以你的身份（${contact.name}）写下读到这篇日记后的感想（2-4句话，自然真诚，不要说"作为AI"）。`
 
-    const url = cfg.url.replace(/\/$/, '') + '/chat/completions'
     const body = {
       model: cfg.model,
       messages: [
@@ -255,18 +255,11 @@ export async function generateDiaryReply(contact, diaryEntry) {
     }
     applyOptionalMaxTokens(body, cfg.maxTokens)
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cfg.key}`
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: response } = await fetchProviderChat(cfg, body)
 
     if (!response.ok) return null
     const data = await response.json()
-    return data.choices?.[0]?.message?.content?.trim() || null
+    return extractProviderNonStreamText(cfg, data).trim() || null
   } catch {
     return null
   }

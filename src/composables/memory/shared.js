@@ -51,10 +51,6 @@ export const DEFAULT_MEMORY_SETTINGS = {
   maxRetrievalTokens: 320,
   historyRetrievalMode: 'keyword',
   vectorSearchEnabled: false,
-  embeddingApiUrl: '',
-  embeddingApiKey: '',
-  embeddingModel: '',
-  embeddingDimensions: 0,
   vectorIndexMode: 'realtime'
 }
 
@@ -255,14 +251,20 @@ export function getSummaryConfig(store, contact) {
   return store?.getConfig
 }
 
-export function getEmbeddingConfig(contact) {
-  const settings = contact?.memorySettings
-  if (!settings?.vectorSearchEnabled) return null
-  const url = (settings.embeddingApiUrl || '').trim()
-  const key = (settings.embeddingApiKey || '').trim()
-  const model = (settings.embeddingModel || '').trim()
+export function getEmbeddingConfig(contact, globalSettings = null) {
+  const memorySettings = contact?.memorySettings
+  if (!memorySettings?.vectorSearchEnabled) return null
+
+  // API credentials are app-wide. Falling back to contact settings keeps
+  // legacy snapshots usable until they are migrated to global settings.
+  const config = globalSettings && typeof globalSettings === 'object'
+    ? globalSettings
+    : memorySettings
+  const url = (config.embeddingApiUrl || '').trim()
+  const key = (config.embeddingApiKey || '').trim()
+  const model = (config.embeddingModel || '').trim()
   if (!url || !key || !model) return null
-  return { url, key, model, dimensions: settings.embeddingDimensions || 0 }
+  return { url, key, model, dimensions: config.embeddingDimensions || 0 }
 }
 
 export function getNewTextMessages(contact, startMsgId, endMsgId = null) {
@@ -527,10 +529,14 @@ export function initContactMemory(contact) {
   }
 
   settings.vectorSearchEnabled = !!settings.vectorSearchEnabled
-  if (typeof settings.embeddingApiUrl !== 'string') settings.embeddingApiUrl = ''
-  if (typeof settings.embeddingApiKey !== 'string') settings.embeddingApiKey = ''
-  if (typeof settings.embeddingModel !== 'string') settings.embeddingModel = ''
-  settings.embeddingDimensions = clampNumber(settings.embeddingDimensions, 0, 8192, 0)
+  // These properties only exist on legacy per-contact snapshots. Keep them
+  // normalized for migration/fallback, but new API settings live globally.
+  if ('embeddingApiUrl' in settings && typeof settings.embeddingApiUrl !== 'string') settings.embeddingApiUrl = ''
+  if ('embeddingApiKey' in settings && typeof settings.embeddingApiKey !== 'string') settings.embeddingApiKey = ''
+  if ('embeddingModel' in settings && typeof settings.embeddingModel !== 'string') settings.embeddingModel = ''
+  if ('embeddingDimensions' in settings) {
+    settings.embeddingDimensions = clampNumber(settings.embeddingDimensions, 0, 8192, 0)
+  }
   if (!['realtime', 'ondemand'].includes(settings.vectorIndexMode)) {
     settings.vectorIndexMode = DEFAULT_MEMORY_SETTINGS.vectorIndexMode
   }

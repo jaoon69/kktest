@@ -11,8 +11,7 @@ import { useContactsStore } from '../../../stores/contacts'
 import { usePersonasStore } from '../../../stores/personas'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
 import { createApiError, createApiFailureResult } from '../../../composables/api/errors'
-import { fetchOpenAICompat, readOpenAICompatError } from '../../../composables/api/openaiCompat'
-import { consumeChatCompletionsStream } from '../../../composables/api/stream'
+import { fetchProviderChat, readProviderChatError, consumeProviderChatStream } from '../../../composables/api/providerRequest'
 import { useMeetParser } from './useMeetParser'
 
 export function useMeetApi() {
@@ -293,17 +292,14 @@ ${preset.jailbreakPrompt}
       if (preset?.frequencyPenalty) body.frequency_penalty = preset.frequencyPenalty
       if (preset?.presencePenalty) body.presence_penalty = preset.presencePenalty
 
-      const { response: res } = await fetchOpenAICompat(cfg.url, {
-        apiKey: cfg.key,
-        body
-      })
+      const { response: res } = await fetchProviderChat(cfg, body)
 
       if (!res.ok) {
-        throw new Error(await readOpenAICompatError(res))
+        throw new Error(await readProviderChatError(cfg, res))
       }
 
       let fullText = ''
-      await consumeChatCompletionsStream(res, (delta) => {
+      await consumeProviderChatStream(cfg, res, (delta) => {
         fullText += delta
         options.onStream?.(fullText)
       })

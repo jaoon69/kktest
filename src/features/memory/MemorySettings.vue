@@ -500,13 +500,12 @@
               ></div>
             </button>
           </div>
-          <div
-            :class="!settings.vectorSearchEnabled ? 'opacity-40 pointer-events-none' : ''"
-          >
+          <div>
             <div class="px-4 py-3 border-b border-[var(--border-color)]">
               <div class="text-[15px] text-[var(--text-primary)] mb-1">Embedding API URL</div>
+              <div class="text-[12px] text-[var(--text-secondary)] mb-2">API 连接配置全局共用，切换角色后无需重复填写</div>
               <input
-                v-model="settings.embeddingApiUrl"
+                v-model="embeddingSettings.embeddingApiUrl"
                 type="text"
                 class="w-full px-3 py-2.5 rounded-[10px] bg-[var(--bg-color)] text-[var(--text-primary)] text-[14px] outline-none"
                 placeholder="https://api.openai.com/v1"
@@ -516,7 +515,7 @@
             <div class="px-4 py-3 border-b border-[var(--border-color)]">
               <div class="text-[15px] text-[var(--text-primary)] mb-1">Embedding API Key</div>
               <input
-                v-model="settings.embeddingApiKey"
+                v-model="embeddingSettings.embeddingApiKey"
                 type="password"
                 class="w-full px-3 py-2.5 rounded-[10px] bg-[var(--bg-color)] text-[var(--text-primary)] text-[14px] outline-none"
                 placeholder="sk-..."
@@ -526,7 +525,7 @@
             <div class="px-4 py-3 border-b border-[var(--border-color)]">
               <div class="text-[15px] text-[var(--text-primary)] mb-1">Embedding 模型</div>
               <input
-                v-model="settings.embeddingModel"
+                v-model="embeddingSettings.embeddingModel"
                 type="text"
                 class="w-full px-3 py-2.5 rounded-[10px] bg-[var(--bg-color)] text-[var(--text-primary)] text-[14px] outline-none"
                 placeholder="text-embedding-3-small"
@@ -554,7 +553,7 @@
               </div>
               <div class="flex items-center gap-1.5">
                 <input
-                  v-model.number="settings.embeddingDimensions"
+                  v-model.number="embeddingSettings.embeddingDimensions"
                   type="number"
                   min="0"
                   max="8192"
@@ -632,6 +631,7 @@
 import { ref, computed, watch } from 'vue'
 import { useContactsStore } from '../../stores/contacts'
 import { useConfigsStore } from '../../stores/configs'
+import { useSettingsStore } from '../../stores/settings'
 import { useStorage } from '../../composables/useStorage'
 import { useMemory, DEFAULT_MEMORY_SETTINGS } from '../../composables/useMemory'
 
@@ -643,11 +643,13 @@ defineEmits(['back'])
 
 const contactsStore = useContactsStore()
 const configsStore = useConfigsStore()
+const settingsStore = useSettingsStore()
 const { scheduleSave } = useStorage()
 const { initContactMemory } = useMemory()
 
 const contact = computed(() => contactsStore.activeChat)
 const configs = computed(() => configsStore.configs || [])
+const embeddingSettings = computed(() => settingsStore)
 
 const settings = computed(() => {
   if (!contact.value) return { ...DEFAULT_MEMORY_SETTINGS }
@@ -687,8 +689,8 @@ function saveKeywords() {
 
 async function testConnection() {
   if (testing.value || !contact.value) return
-  const s = settings.value
-  if (!s.embeddingApiUrl || !s.embeddingApiKey || !s.embeddingModel) {
+  const embedding = embeddingSettings.value
+  if (!embedding.embeddingApiUrl || !embedding.embeddingApiKey || !embedding.embeddingModel) {
     vectorStats.value = 'URL、Key、Model 均需填写'
     return
   }
@@ -697,10 +699,10 @@ async function testConnection() {
   try {
     const { testEmbeddingConnection } = await import('../../composables/memory/embeddingApi')
     const result = await testEmbeddingConnection({
-      url: s.embeddingApiUrl,
-      key: s.embeddingApiKey,
-      model: s.embeddingModel,
-      dimensions: s.embeddingDimensions || 0
+      url: embedding.embeddingApiUrl,
+      key: embedding.embeddingApiKey,
+      model: embedding.embeddingModel,
+      dimensions: embedding.embeddingDimensions || 0
     })
     vectorStats.value = result.success
       ? `连接成功，向量维度: ${result.dimensions}`
@@ -714,8 +716,8 @@ async function testConnection() {
 
 async function rebuildVectorIndex() {
   if (rebuilding.value || !contact.value) return
-  const s = settings.value
-  if (!s.embeddingApiUrl || !s.embeddingApiKey || !s.embeddingModel) {
+  const embedding = embeddingSettings.value
+  if (!embedding.embeddingApiUrl || !embedding.embeddingApiKey || !embedding.embeddingModel) {
     vectorStats.value = 'URL、Key、Model 均需填写'
     return
   }
@@ -728,10 +730,10 @@ async function rebuildVectorIndex() {
 
     const { ensureRoundVectors } = await import('../../composables/retrieval/useHistorySearch')
     const config = {
-      url: s.embeddingApiUrl,
-      key: s.embeddingApiKey,
-      model: s.embeddingModel,
-      dimensions: s.embeddingDimensions || 0
+      url: embedding.embeddingApiUrl,
+      key: embedding.embeddingApiKey,
+      model: embedding.embeddingModel,
+      dimensions: embedding.embeddingDimensions || 0
     }
     const count = await ensureRoundVectors(contact.value, contact.value.msgs || [], config)
     const stats = await vstore.getStats()

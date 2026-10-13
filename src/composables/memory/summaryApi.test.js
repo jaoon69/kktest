@@ -18,6 +18,16 @@ afterEach(() => {
 })
 
 describe('summaryApi', () => {
+  it.each([
+    ['openai-responses', { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [{ type: 'message', content: [{ type: 'output_text', text: 'Partial summary' }] }] }],
+    ['anthropic-messages', { stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Partial summary' }] }],
+    ['gemini-generate-content', { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'Partial summary' }] } }] }]
+  ])('reads native %s summaries and preserves truncation status', async (apiFormat, payload) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(createJsonTextResponse(payload))
+    const result = await callSummaryAPI({ getConfig: { apiFormat, key: 'test-key', url: 'https://provider.test/v1', model: 'test-model' } }, 'system', 'user', {})
+    expect(result).toMatchObject({ success: true, content: 'Partial summary', truncated: true, finishReason: 'length' })
+  })
+
   it('prioritizes config maxTokens over request max_tokens', async () => {
     const fetchMock = vi.fn().mockResolvedValue(createJsonTextResponse({
       choices: [{ message: { content: 'summary ok' }, finish_reason: 'stop' }]

@@ -69,11 +69,16 @@ function normalizeUsageShape(raw) {
   ]
 
   for (const source of candidates) {
-    const promptTokens = pickTokenFromKeys(source, promptKeys)
+    const cacheReadTokens = pickTokenFromKeys(source, ['cache_read_input_tokens', 'cache_read_tokens', 'cachedContentTokenCount', 'total_cached_tokens'])
+      || toSafeTokenInt(source.input_tokens_details?.cached_tokens || source.prompt_tokens_details?.cached_tokens)
+    const cacheWriteTokens = pickTokenFromKeys(source, ['cache_creation_input_tokens', 'cache_write_tokens'])
+      || (toSafeTokenInt(source.cache_creation?.ephemeral_5m_input_tokens) + toSafeTokenInt(source.cache_creation?.ephemeral_1h_input_tokens))
+    const anthropicCacheUsage = source.input_tokens != null && source.prompt_tokens == null && ('cache_read_input_tokens' in source || 'cache_creation_input_tokens' in source)
+    const promptTokens = pickTokenFromKeys(source, promptKeys) + (anthropicCacheUsage ? cacheReadTokens + cacheWriteTokens : 0)
     const completionTokens = pickTokenFromKeys(source, completionKeys)
     const totalTokens = pickTokenFromKeys(source, totalKeys) || (promptTokens + completionTokens)
     if (promptTokens > 0 || completionTokens > 0 || totalTokens > 0) {
-      return { promptTokens, completionTokens, totalTokens }
+      return { promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheWriteTokens }
     }
   }
 
@@ -454,7 +459,13 @@ export function recordUsage(contact, streamInfo, fallbackUsage = null, model = '
   const stats = contact.tokenStats
   if (!Array.isArray(stats.lastCalls)) stats.lastCalls = []
 
-  const apiUsage = normalizeUsageShape(streamInfo?.usage)
+  const rounds = Array.isArray(options.roundUsages) && options.roundUsages.length > 0 ? options.roundUsages : [streamInfo?.usage]
+  const apiUsage = rounds.map(normalizeUsageShape).reduce((sum, usage) => {
+    for (const key of ['promptTokens', 'completionTokens', 'totalTokens', 'cacheReadTokens', 'cacheWriteTokens']) {
+      sum[key] = (sum[key] || 0) + (usage[key] || 0)
+    }
+    return sum
+  }, {})
   const fallback = normalizeUsageShape(fallbackUsage)
   const hasRealUsage = hasUsageTokens(apiUsage)
   const usage = hasRealUsage ? apiUsage : fallback
@@ -474,6 +485,12 @@ export function recordUsage(contact, streamInfo, fallbackUsage = null, model = '
       completionTokens,
       totalTokens,
       estimated: !hasRealUsage
+    }
+    if (hasRealUsage) {
+      callInfo.cacheReadTokens = toSafeTokenInt(apiUsage.cacheReadTokens)
+      callInfo.cacheWriteTokens = toSafeTokenInt(apiUsage.cacheWriteTokens)
+      stats.totalCacheReadTokens = (stats.totalCacheReadTokens || 0) + callInfo.cacheReadTokens
+      stats.totalCacheWriteTokens = (stats.totalCacheWriteTokens || 0) + callInfo.cacheWriteTokens
     }
     if (scaledPromptBreakdown) {
       callInfo.promptBreakdown = scaledPromptBreakdown

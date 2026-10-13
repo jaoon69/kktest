@@ -1,4 +1,4 @@
-import { fetchOpenAICompat, readOpenAICompatError } from './api/openaiCompat'
+import { fetchProviderChat, readProviderChatError, extractProviderNonStreamText } from './api/providerRequest'
 import { applyOptionalMaxTokens } from './api/chatCompletions'
 import { useConfigsStore } from '../stores/configs'
 
@@ -52,17 +52,14 @@ ${existingDesc ? `现有描述参考: ${existingDesc}` : ''}
     }
     applyOptionalMaxTokens(body, config.maxTokens)
 
-    const { response: res } = await fetchOpenAICompat(config.url, {
-      apiKey: config.key,
-      body
-    })
+    const { response: res } = await fetchProviderChat(config, body)
 
     if (!res.ok) {
-      throw new Error(`LLM API 错误: ${res.status} ${await readOpenAICompatError(res)}`)
+      throw new Error(`LLM API 错误: ${res.status} ${await readProviderChatError(config, res)}`)
     }
 
     const data = await res.json()
-    const content = data.choices?.[0]?.message?.content || ''
+    const content = extractProviderNonStreamText(config, data)
 
     // 提取 JSON
     const jsonMatch = content.match(/\{[\s\S]*\}/)
@@ -167,17 +164,14 @@ ${charList || '- 主角\n- 女主角'}
     }
     applyOptionalMaxTokens(body, config.maxTokens)
 
-    const { response: res } = await fetchOpenAICompat(config.url, {
-      apiKey: config.key,
-      body
-    })
+    const { response: res } = await fetchProviderChat(config, body)
 
     if (!res.ok) {
-      throw new Error(`LLM API 错误: ${res.status} ${await readOpenAICompatError(res)}`)
+      throw new Error(`LLM API 错误: ${res.status} ${await readProviderChatError(config, res)}`)
     }
 
     const data = await res.json()
-    const content = data.choices?.[0]?.message?.content || ''
+    const content = extractProviderNonStreamText(config, data)
 
     const jsonMatch = content.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {

@@ -26,6 +26,12 @@ import {
   fetchProviderModels,
   readProviderChatError
 } from './providerRequest'
+import { buildContextMessages } from './contextWindow'
+import {
+  buildDirectChatApiMessages,
+  buildGroupSingleApiMessages,
+  buildGroupMultiApiMessages
+} from './messageHistoryBuilder'
 
 function createOkResponse(text = '{}') {
   return new Response(text, { status: 200 })
@@ -83,6 +89,40 @@ describe('providerRequest', () => {
     expect(request.body).not.toHaveProperty('stream')
   })
 
+  it.each([
+    ['direct', buildDirectChatApiMessages],
+    ['group single', buildGroupSingleApiMessages],
+    ['group multi', buildGroupMultiApiMessages]
+  ])('sends Responses image content through the %s chat request path', async (_name, buildMessages) => {
+    const cfg = {
+      url: 'https://openai.test/v1',
+      key: 'openai-key',
+      model: 'gpt-test',
+      apiFormat: API_FORMAT_OPENAI_RESPONSES
+    }
+    const messages = buildMessages([
+      { role: 'user', content: 'Describe this', isImage: true, imageUrl: 'data:image/png;base64,abc' }
+    ])
+    const originalMessages = structuredClone(messages)
+    const request = buildProviderChatPayload(cfg, messages)
+    const nonStreamingRequest = buildProviderNonStreamingPayload(cfg, request)
+
+    expect(request.body.input[0].content).toEqual([
+      { type: 'input_text', text: expect.stringContaining('Describe this') },
+      { type: 'input_image', image_url: 'data:image/png;base64,abc', detail: 'auto' }
+    ])
+    expect(nonStreamingRequest.body.input).toEqual(request.body.input)
+    expect(nonStreamingRequest.body.stream).toBe(false)
+    expect(messages).toEqual(originalMessages)
+
+    await fetchProviderChat(cfg, request)
+    expect(openAIMocks.fetchOpenAICompat).toHaveBeenLastCalledWith(cfg.url, {
+      path: '/responses', targetUrl: request.url, apiKey: cfg.key, body: request.body
+    })
+    expect(buildProviderChatPayload({ ...cfg, apiFormat: API_FORMAT_OPENAI_COMPATIBLE }, messages).messages)
+      .toEqual(originalMessages)
+  })
+
   it('sends native Anthropic requests with custom headers and body applied last', async () => {
     const cfg = {
       url: 'https://api.anthropic.com',
@@ -125,6 +165,41 @@ describe('providerRequest', () => {
     expect(request.body).not.toHaveProperty('top_k')
   })
 
+  it('keeps growing Claude chats within the cache limit after context summaries and custom tools are added', () => {
+    const cacheControl = { type: 'ephemeral' }
+    const cfg = {
+      url: 'https://azure.test/anthropic',
+      key: 'test-key',
+      model: 'claude-opus-4-5',
+      apiFormat: API_FORMAT_ANTHROPIC_MESSAGES,
+      cacheConfig: { enabled: true },
+      customBodyJson: JSON.stringify({
+        tools: Array.from({ length: 4 }, (_, index) => ({
+          name: `lookup_${index}`, input_schema: { type: 'object' }, cache_control: cacheControl
+        }))
+      })
+    }
+    const history = []
+    for (let round = 0; round < 12; round += 1) {
+      history.push({ role: 'user', content: `Question ${round}`, time: 1700000000000 + round * 3600000 })
+      const messages = [
+        { role: 'system', content: 'Character instructions' },
+        ...buildContextMessages(history, { headRounds: 1, tailRounds: 2, middleSummary: 'Earlier conversation' }),
+        { role: 'system', content: 'Reply format instructions' }
+      ]
+
+      const request = buildProviderChatPayload(cfg, messages)
+      const blocks = [...request.body.tools, ...request.body.system, ...request.body.messages.flatMap(message => message.content)]
+      expect(blocks.filter(part => part.cache_control).length).toBeLessThanOrEqual(4)
+      expect(request.body.system.map(part => part.text)).toEqual(messages.filter(message => message.role === 'system').map(message => message.content))
+      expect(request.body.system[0].cache_control).toEqual(cacheControl)
+      expect(request.body.system.slice(1).every(part => !part.cache_control)).toBe(true)
+      expect(request.body.messages.at(-1).content.at(-1).text).toBe(`Question ${round}`)
+
+      history.push({ role: 'assistant', content: `Answer ${round}`, time: 1700000001000 + round * 3600000 })
+    }
+  })
+
   it('applies explicit nested removals after provider body normalization', () => {
     const request = buildProviderChatPayload({
       url: 'https://generativelanguage.googleapis.com/v1beta',
@@ -164,10 +239,25 @@ describe('providerRequest', () => {
 
     expect(openAIMocks.fetchOpenAICompat).toHaveBeenLastCalledWith('https://openai.test/v1', {
       path: '/responses',
+      targetUrl: responsesRequest.url,
       apiKey: 'openai-key',
       body: responsesRequest.body,
       extraHeaders: { 'HTTP-Referer': 'https://app.example' }
     })
+  })
+
+  it.each([
+    ['https://openai.test', 'https://openai.test/v1/responses'],
+    ['https://proxy.test/api/v1/responses', 'https://proxy.test/api/v1/responses'],
+    ['https://proxy.test/v1/chat/completions?route=1', 'https://proxy.test/v1/responses?route=1']
+  ])('uses the resolved Responses endpoint for %s and its matching model endpoint', async (url, targetUrl) => {
+    const cfg = { url, key: 'k', model: 'gpt-test', apiFormat: API_FORMAT_OPENAI_RESPONSES }
+    const request = buildProviderChatPayload(cfg, [{ role: 'user', content: 'Hi' }])
+    await fetchProviderChat(cfg, request)
+    expect(openAIMocks.fetchOpenAICompat).toHaveBeenLastCalledWith(url, expect.objectContaining({ targetUrl }))
+    openAIMocks.fetchOpenAICompat.mockResolvedValue({ request: {}, response: createOkResponse('{"data":[{"id":"gpt-test"}]}') })
+    await fetchProviderModels(cfg)
+    expect(openAIMocks.fetchOpenAICompat).toHaveBeenLastCalledWith(url, expect.objectContaining({ targetUrl: targetUrl.replace('/responses', '/models') }))
   })
 
   it('sends native Gemini requests', async () => {
@@ -187,6 +277,25 @@ describe('providerRequest', () => {
         headers: expect.objectContaining({ 'x-goog-api-key': 'gemini-key' })
       })
     )
+  })
+
+  it('normalizes null message content after custom Responses body overrides', () => {
+    const call = { type: 'function_call', call_id: 'call_1', name: 'lookup', arguments: '{}' }
+    const request = buildProviderChatPayload({
+      url: 'https://openai.test/v1', key: 'k', model: 'gpt-test', apiFormat: API_FORMAT_OPENAI_RESPONSES,
+      customBodyJson: JSON.stringify({ input: [
+        { role: 'assistant', content: null },
+        { type: 'message', role: 'assistant', id: 'msg_1', content: null },
+        call,
+        { type: 'function_call_output', call_id: 'call_1', output: 'Result' }
+      ] })
+    }, [{ role: 'user', content: 'Hi' }])
+    expect(request.body.input).toEqual([
+      { role: 'assistant', content: '' },
+      { type: 'message', role: 'assistant', id: 'msg_1', content: '' },
+      call,
+      { type: 'function_call_output', call_id: 'call_1', output: 'Result' }
+    ])
   })
 
   it('routes stream consumers and error readers by provider format', async () => {

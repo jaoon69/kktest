@@ -24,7 +24,7 @@ export async function getContextWindowedMsgs(contact) {
     const tailCount = settings.contextTailRounds ? settings.contextTailRounds * 2 : 10
     const maxResults = settings.historyRetrievalCount || 3
     const maxTokens = settings.maxRetrievalTokens || 400
-    const useVector = settings.vectorSearchEnabled && settings.embeddingApiUrl && settings.embeddingModel
+    const useVector = settings.vectorSearchEnabled
 
     let results = []
 

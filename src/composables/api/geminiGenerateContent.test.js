@@ -151,7 +151,7 @@ describe('geminiGenerateContent adapter', () => {
       name: 'write_diary',
       content: '{"success":true}'
     })).toEqual({
-      role: 'function',
+      role: 'user',
       parts: [
         {
           functionResponse: {
@@ -201,7 +201,7 @@ describe('geminiGenerateContent adapter', () => {
         ]
       },
       {
-        role: 'function',
+        role: 'user',
         parts: [
           {
             functionResponse: {

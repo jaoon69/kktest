@@ -33,6 +33,7 @@
           </div>
           <IosToggle :model-value="store.toolCallingConfig.showToolLog" class="shrink-0" @update:modelValue="handleShowToolLogChange" />
         </div>
+        <SettingsWebSearch />
         <div class="px-4 py-3 flex justify-between items-center border-b border-[var(--border-color)] gap-3">
           <div class="flex flex-col flex-1 min-w-0">
             <span class="text-[17px] text-[var(--text-primary)]">本地桥接（高级）</span>
@@ -240,6 +241,7 @@ import { useToast } from '../../composables/useToast'
 import { useMcpBridge } from '../../composables/useMcpBridge'
 import { useNotionConnection } from '../../composables/useNotionConnection'
 import IosToggle from '../../components/common/IosToggle.vue'
+import SettingsWebSearch from './SettingsWebSearch.vue'
 import { makeId } from '../../utils/id'
 
 const store = useSettingsStore()

@@ -1,4 +1,4 @@
-import { parseOptionalMaxTokens, parseOptionalTemperature } from './chatCompletions'
+import { resolveOptionalMaxTokens, parseOptionalTemperature } from './chatCompletions'
 import { prepareApiKey } from '../../utils/httpHeaders'
 
 const DEFAULT_ERROR_TEXT_LIMIT = 200
@@ -33,6 +33,10 @@ function normalizeGeminiParts(content) {
         continue
       }
       if (!part || typeof part !== 'object') continue
+      if (part.type == null && ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse', 'thoughtSignature'].some(key => key in part)) {
+        parts.push(part)
+        continue
+      }
       if (part.type === 'text' && typeof part.text === 'string') {
         if (part.text.trim()) parts.push({ text: part.text })
         continue
@@ -60,11 +64,12 @@ function safeJsonParseObject(value) {
 export function normalizeGeminiToolResultMessage(message) {
   const name = String(message?.name || message?.function?.name || '').trim()
   return {
-    role: 'function',
+    role: 'user',
     parts: [
       {
         functionResponse: {
           name,
+          ...(message?.tool_call_id && !String(message.tool_call_id).startsWith('gemini_call_') ? { id: message.tool_call_id } : {}),
           response: safeJsonParseObject(message?.content)
         }
       }
@@ -113,7 +118,7 @@ function mergeConsecutiveGeminiContents(contents) {
   const merged = []
   for (const item of contents) {
     const prev = merged[merged.length - 1]
-    if (prev && prev.role === item.role && item.role !== 'function') {
+    if (prev && prev.role === item.role) {
       prev.parts = prev.parts.concat(item.parts)
       continue
     }
@@ -131,7 +136,7 @@ function splitMessagesForGemini(messages) {
     const role = String(message.role || '').trim()
     const parts = normalizeGeminiParts(message.content)
 
-    if (role === 'system') {
+    if (role === 'system' || role === 'developer') {
       systemParts.push(...parts.filter(part => typeof part.text === 'string'))
       continue
     }
@@ -193,7 +198,7 @@ export function buildGeminiGenerateContentRequest(cfg = {}, messages = [], optio
   const generationConfig = {}
   const temperature = parseOptionalTemperature(cfg.temperature)
   if (temperature !== null) generationConfig.temperature = temperature
-  const maxTokens = parseOptionalMaxTokens(options.maxTokens ?? options.max_tokens ?? cfg.maxTokens)
+  const maxTokens = resolveOptionalMaxTokens(cfg.maxTokens, options.maxTokens, options.max_tokens)
   if (maxTokens !== null) generationConfig.maxOutputTokens = maxTokens
   if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig
   const tools = normalizeGeminiTools(options.tools)
@@ -201,6 +206,10 @@ export function buildGeminiGenerateContentRequest(cfg = {}, messages = [], optio
     body.tools = tools
     if (options.tool_choice === 'none') {
       body.toolConfig = { functionCallingConfig: { mode: 'NONE' } }
+    } else if (options.tool_choice === 'required') {
+      body.toolConfig = { functionCallingConfig: { mode: 'ANY' } }
+    } else if (options.tool_choice?.type === 'function') {
+      body.toolConfig = { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [options.tool_choice.function?.name || options.tool_choice.name] } }
     }
   }
 
@@ -233,8 +242,12 @@ function extractReasoningFromGeminiPayload(payload) {
   return candidates.map(extractReasoningFromCandidate).join('')
 }
 
-function extractToolCallsFromGeminiPayload(payload) {
-  if (Array.isArray(payload)) return payload.flatMap(extractToolCallsFromGeminiPayload)
+function extractToolCallsFromGeminiPayload(payload, offset = 0) {
+  if (Array.isArray(payload)) {
+    const calls = []
+    for (const item of payload) calls.push(...extractToolCallsFromGeminiPayload(item, offset + calls.length))
+    return calls
+  }
   if (!payload || typeof payload !== 'object') return []
   const calls = []
   const candidates = Array.isArray(payload.candidates) ? payload.candidates : []
@@ -243,7 +256,7 @@ function extractToolCallsFromGeminiPayload(payload) {
     parts.forEach(part => {
       const functionCall = part?.functionCall || part?.function_call
       if (!functionCall?.name) return
-      const id = String(functionCall.id || `gemini_call_${calls.length}`)
+      const id = String(functionCall.id || `gemini_call_${offset + calls.length}`)
       calls.push({
         id,
         type: 'function',
@@ -262,6 +275,7 @@ export function extractGeminiNonStreamText(payload) {
     return payload.map(item => extractGeminiNonStreamText(item)).join('')
   }
   if (!payload || typeof payload !== 'object') return ''
+  if (payload.error) throw new Error(payload.error.message || 'Gemini 接口生成回复失败')
   const candidates = Array.isArray(payload.candidates) ? payload.candidates : []
   return candidates.map(extractTextFromCandidate).join('')
 }
@@ -293,6 +307,8 @@ export async function consumeGeminiGenerateContentStream(res, onDelta, options =
   let usage = null
   let finishReason = null
   const toolCalls = []
+  const nativeParts = []
+  let processedPayload = false
   let reasoningContent = ''
 
   const emit = (text) => {
@@ -305,17 +321,23 @@ export async function consumeGeminiGenerateContentStream(res, onDelta, options =
 
   const processPayload = (payload) => {
     if (!payload) return
+    if (Array.isArray(payload)) {
+      payload.forEach(processPayload)
+      return
+    }
+    processedPayload = true
     emit(extractGeminiNonStreamText(payload))
     const reasoningDelta = extractReasoningFromGeminiPayload(payload)
     if (reasoningDelta) {
       reasoningContent += reasoningDelta
       options.onReasoningDelta?.(reasoningContent)
     }
-    toolCalls.push(...extractToolCallsFromGeminiPayload(payload))
+    nativeParts.push(...(payload.candidates?.[0]?.content?.parts || []))
+    toolCalls.push(...extractToolCallsFromGeminiPayload(payload, toolCalls.length))
     const nextFinishReason = extractGeminiFinishReason(payload)
     if (nextFinishReason) finishReason = nextFinishReason
-    if (payload.usageMetadata && typeof payload.usageMetadata === 'object') usage = payload.usageMetadata
-    if (payload.usage && typeof payload.usage === 'object') usage = payload.usage
+    if (payload.usageMetadata && typeof payload.usageMetadata === 'object') usage = { ...usage, ...payload.usageMetadata }
+    if (payload.usage && typeof payload.usage === 'object') usage = { ...usage, ...payload.usage }
   }
 
   const processEvent = () => {
@@ -325,43 +347,48 @@ export async function consumeGeminiGenerateContentStream(res, onDelta, options =
     processPayload(payload)
   }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = decoder.decode(value, { stream: true })
-    rawText += chunk
-    lineBuffer += chunk
-    const lines = lineBuffer.split(/\r?\n/)
-    lineBuffer = lines.pop() || ''
-    for (const rawLine of lines) {
-      const line = rawLine.trimEnd()
-      if (line === '') {
-        processEvent()
-        continue
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      rawText += chunk
+      lineBuffer += chunk
+      const lines = lineBuffer.split(/\r?\n/)
+      lineBuffer = lines.pop() || ''
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd()
+        if (line === '') {
+          processEvent()
+          continue
+        }
+        if (line.startsWith('data:')) {
+          eventLines.push(line.slice(5).trimStart())
+        } else if (line.trim().startsWith('{') || line.trim().startsWith('[')) {
+          processPayload(tryParseJsonFrame(line))
+        }
       }
+    }
+
+    if (lineBuffer.trim()) {
+      const line = lineBuffer.trimEnd()
       if (line.startsWith('data:')) {
         eventLines.push(line.slice(5).trimStart())
-      } else if (line.trim().startsWith('{') || line.trim().startsWith('[')) {
+        processEvent()
+      } else {
         processPayload(tryParseJsonFrame(line))
       }
-    }
-  }
-
-  if (lineBuffer.trim()) {
-    const line = lineBuffer.trimEnd()
-    if (line.startsWith('data:')) {
-      eventLines.push(line.slice(5).trimStart())
-      processEvent()
     } else {
-      processPayload(tryParseJsonFrame(line))
+      processEvent()
     }
-  } else {
-    processEvent()
-  }
 
-  if (emittedChars === 0 && rawText.trim()) {
-    processPayload(tryParseJsonFrame(rawText))
-  }
+    if (!processedPayload && rawText.trim()) {
+      processPayload(tryParseJsonFrame(rawText))
+    }
+  } catch (error) {
+    try { await reader.cancel() } catch { /* Preserve the API error. */ }
+    throw error
+  } finally { reader.releaseLock?.() }
 
   return {
     emittedChars,
@@ -371,7 +398,8 @@ export async function consumeGeminiGenerateContentStream(res, onDelta, options =
     finishReason,
     filteredReasoningChars: reasoningContent.length,
     reasoningContent: reasoningContent.trim(),
-    toolCalls
+    toolCalls: ['MAX_TOKENS', 'SAFETY'].includes(finishReason) ? [] : toolCalls,
+    nativeAssistantMessage: { role: 'assistant', content: nativeParts }
   }
 }
 

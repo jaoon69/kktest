@@ -17,6 +17,7 @@ import { getInteractionState } from '../interactiveMessages'
 
 const TOOL_LOG_TEXT_MAX_CHARS = 320
 const REASONING_SUMMARY_MAX_CHARS = 72
+const SMART_UI_STREAMING_WINDOW_MS = 5 * 60 * 1000
 
 function truncateToolLogText(value, maxChars = TOOL_LOG_TEXT_MAX_CHARS) {
   const text = String(value || '').trim()
@@ -501,6 +502,32 @@ export function buildMessageBlocks(options) {
         const isFirstRenderPart = partIndex === firstRenderPartIndex
         const isLastRenderPart = partIndex === lastRenderPartIndex
 
+        if (part.type === 'ui') {
+          const incomplete = part.complete === false
+          result.push({
+            type: 'smartUI',
+            key: 'ui-' + m.id + '-' + partIndex,
+            msgId: blockMsgId,
+            partIndex,
+            isUser,
+            mb: (isLastInGroup && isLastRenderPart) ? 'mb-2' : 'mb-[6px]',
+            markup: part.content,
+            complete: !incomplete,
+            // 只有末条消息里未闭合的界面才可能还在流式生成；被截断的旧消息不显示生成中
+            streaming: incomplete && i === msgs.length - 1 && (Date.now() - Number(m.time || 0)) < SMART_UI_STREAMING_WINDOW_MS,
+            animate: incomplete || anim,
+            animClass: bubbleAnimClass,
+            contextContent: part.content,
+            isGroupChat: groupChat,
+            senderName: (isFirstInGroup && isFirstRenderPart) ? senderName : null,
+            senderAvatar,
+            senderAvatarType,
+            showAvatar: forceShowAvatar || (isLastInGroup && isLastRenderPart && (groupChat || shouldShowChatAvatars)),
+            metaText: (isLastInGroup && isLastRenderPart) ? tailMetaText : '',
+            ...createFavoriteState(m, partIndex)
+          })
+          continue
+        }
         if (part.type === 'sticker') {
           const url = getStickerUrl(part.name)
           result.push({

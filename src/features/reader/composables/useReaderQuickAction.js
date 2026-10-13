@@ -5,7 +5,7 @@
 import { useContactsStore } from '../../../stores/contacts'
 import { useConfigsStore } from '../../../stores/configs'
 import { useReaderStore } from '../../../stores/reader'
-import { consumeChatCompletionsStream } from '../../../composables/api/stream'
+import { fetchProviderChat, consumeProviderChatStream } from '../../../composables/api/providerRequest'
 
 const TRANSLATE_TARGETS = {
   auto: '请将以下文字翻译为中文（如已是中文则翻译为英文），保持原文风格。',
@@ -78,7 +78,6 @@ export function useReaderQuickAction() {
       : selectedText
 
     try {
-      const url = config.url.replace(/\/+$/, '') + '/chat/completions'
       const body = {
         model: config.model || 'gpt-3.5-turbo',
         messages: [
@@ -89,15 +88,7 @@ export function useReaderQuickAction() {
       }
       if (config.temperature != null) body.temperature = config.temperature
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.key}`
-        },
-        body: JSON.stringify(body),
-        signal: abortController.signal
-      })
+      const { response: response } = await fetchProviderChat(config, body, { signal: abortController.signal })
 
       if (!response.ok) {
         const errText = await response.text().catch(() => response.statusText)
@@ -105,7 +96,7 @@ export function useReaderQuickAction() {
         return
       }
 
-      await consumeChatCompletionsStream(response, (delta) => {
+      await consumeProviderChatStream(config, response, (delta) => {
         qa.result += delta
       })
     } catch (err) {

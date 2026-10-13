@@ -91,14 +91,15 @@ function matchSingleCjkChar(context, keyword) {
 /**
  * @param {ReturnType<typeof prepareKeywordMatchContext>} context
  * @param {string} rawKeyword
+ * @param {{ caseSensitive?: boolean }} [options]
  * @returns {boolean}
  */
-export function matchesLorebookKeyword(context, rawKeyword) {
+export function matchesLorebookKeyword(context, rawKeyword, { caseSensitive = false } = {}) {
   const keyword = String(rawKeyword || '').trim()
   if (!keyword || !context) return false
 
   if (ASCII_WORD_RE.test(keyword)) {
-    const re = new RegExp(`\\b${escapeRegExp(keyword.toLowerCase())}\\b`, 'i')
+    const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, caseSensitive ? '' : 'i')
     return re.test(context.raw)
   }
 
@@ -106,5 +107,5 @@ export function matchesLorebookKeyword(context, rawKeyword) {
     return matchSingleCjkChar(context, keyword)
   }
 
-  return context.lower.includes(keyword.toLowerCase())
+  return caseSensitive ? context.raw.includes(keyword) : context.lower.includes(keyword.toLowerCase())
 }

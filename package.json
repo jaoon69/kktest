@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only WITH Commons-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ovo066/kktest.git"
+    "url": "https://github.com/ovo066/KakaChat.git"
   },
   "type": "module",
   "scripts": {

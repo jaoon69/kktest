@@ -1,3 +1,5 @@
+import { pickFullSmartUIMessages, rewriteSmartUIContentForModel } from '../../features/chat'
+
 function isImagePlaceholder(content) {
   return content === '[\u56FE\u7247]'
 }
@@ -63,6 +65,7 @@ export async function resolveContextMessageImageUrls(contextMsgs = [], resolveIm
 }
 
 export function buildDirectChatApiMessages(contextMsgs = [], allMessages = []) {
+  const fullSmartUIMessages = pickFullSmartUIMessages(contextMsgs)
   return contextMsgs.map(message => {
     if (message?.role === 'system') {
       return { role: message.role, content: message.content }
@@ -76,10 +79,10 @@ export function buildDirectChatApiMessages(contextMsgs = [], allMessages = []) {
       }
     }
 
-    let content = message.content
+    let content = rewriteSmartUIContentForModel(message, message.content, fullSmartUIMessages.has(message))
     const replyText = resolveReplyText(message, allMessages)
     if (replyText) {
-      content = `[quote:${replyText}]\n${message.content}`
+      content = `[quote:${replyText}]\n${content}`
     }
 
     return { role: message.role, content }

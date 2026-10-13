@@ -157,6 +157,7 @@ const aiFeatureCount = computed(() => {
   if (store.allowAIMockImage) count++
   if (store.allowAICall) count++
   if (store.allowAIMusicRecommend) count++
+  if (store.allowAIIntelligentUI) count++
   if (store.enableWeatherContext) count++
   return count
 })
@@ -166,7 +167,10 @@ const toolsMcpSummary = computed(() => {
   const directCount = Array.isArray(store.toolCallingConfig?.mcpDirectServers)
     ? store.toolCallingConfig.mcpDirectServers.filter(s => s.enabled !== false).length
     : 0
-  return directCount > 0 ? `已开启 · ${directCount} 个直连` : '已开启'
+  const parts = ['已开启']
+  if (store.toolCallingConfig?.webSearch?.enabled) parts.push('联网搜索')
+  if (directCount > 0) parts.push(`${directCount} 个直连`)
+  return parts.join(' · ')
 })
 
 const voiceSummary = computed(() => {

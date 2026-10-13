@@ -9,6 +9,7 @@ import {
   sanitizeStickerGroupSelection
 } from '../../utils/stickerGroups'
 import { normalizeMcpServerIds } from '../../utils/mcpServers'
+import { normalizeWebSearchConfig } from '../../utils/webSearchConfig'
 import {
   createDefaultCloudSyncSettings,
   createDefaultLivenessSettings,
@@ -133,6 +134,36 @@ function normalizeUrlLikeString(value) {
   return String(value || '').trim()
 }
 
+const GLOBAL_EMBEDDING_SETTING_KEYS = [
+  'embeddingApiUrl',
+  'embeddingApiKey',
+  'embeddingModel',
+  'embeddingDimensions'
+]
+const EMBEDDING_CREDENTIAL_KEYS = GLOBAL_EMBEDDING_SETTING_KEYS.slice(0, 3)
+
+function migrateLegacyContactEmbeddingSettings(normalized, rawSettings) {
+  const hasGlobalConfig = GLOBAL_EMBEDDING_SETTING_KEYS.every((key) => (
+    rawSettings && Object.prototype.hasOwnProperty.call(rawSettings, key)
+  ))
+  if (!Array.isArray(normalized.contacts)) return
+
+  const candidates = normalized.contacts
+    .map(contact => contact?.memorySettings)
+    .filter(settings => settings && typeof settings === 'object' && !Array.isArray(settings))
+  const legacy = candidates.find(settings => (
+    EMBEDDING_CREDENTIAL_KEYS.every(key => String(settings[key] || '').trim())
+  )) || candidates.find(settings => (
+    EMBEDDING_CREDENTIAL_KEYS.some(key => String(settings[key] || '').trim())
+  ))
+  if (!hasGlobalConfig && legacy) {
+    normalized.settings.embeddingApiUrl = typeof legacy.embeddingApiUrl === 'string' ? legacy.embeddingApiUrl : ''
+    normalized.settings.embeddingApiKey = typeof legacy.embeddingApiKey === 'string' ? legacy.embeddingApiKey : ''
+    normalized.settings.embeddingModel = typeof legacy.embeddingModel === 'string' ? legacy.embeddingModel : ''
+    normalized.settings.embeddingDimensions = legacy.embeddingDimensions ?? 0
+  }
+}
+
 function normalizeToolCallingServer(server) {
   if (!server || typeof server !== 'object' || Array.isArray(server)) return null
 
@@ -221,7 +252,8 @@ function normalizeToolCallingConfig(rawConfig, fallbackConfig) {
       : fallbackServers,
     mcpDirectServers: Array.isArray(raw.mcpDirectServers)
       ? raw.mcpDirectServers.map(normalizeToolCallingServer).filter(Boolean)
-      : fallbackDirectServers
+      : fallbackDirectServers,
+    webSearch: normalizeWebSearchConfig(raw.webSearch, fallback.webSearch)
   }
 }
 
@@ -341,6 +373,7 @@ export const APP_DATA_MODULES = [
         ? normalized.settings
         : {}
       normalized.settings = { ...context.defaultSettings, ...rawNormalizedSettings }
+      migrateLegacyContactEmbeddingSettings(normalized, context.rawSettings)
       normalized.localUpdatedAt = Math.max(0, Number(normalized.localUpdatedAt || 0) || 0)
       normalized.settings.allowPlannerAI = !!normalized.settings.allowPlannerAI
 

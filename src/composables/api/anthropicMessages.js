@@ -1,9 +1,10 @@
-import { parseOptionalMaxTokens, parseOptionalTemperature } from './chatCompletions'
+import { resolveOptionalMaxTokens, parseOptionalTemperature } from './chatCompletions'
 import { prepareApiKey } from '../../utils/httpHeaders'
 import { normalizeCacheConfig } from './providerFormats'
 
 const DEFAULT_ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_ERROR_TEXT_LIMIT = 200
+const MAX_CACHE_BREAKPOINTS = 4
 
 // Anthropic 要求首条消息必须为 user 角色；角色扮演场景常以助手开场白开头，此时补一条占位 user 消息。
 export const ANTHROPIC_LEADING_USER_PLACEHOLDER = '[对话开始]'
@@ -63,7 +64,7 @@ function normalizeAnthropicContent(content) {
       }
       if (!part || typeof part !== 'object') continue
       if (part.type === 'text' && typeof part.text === 'string') {
-        if (part.text.trim()) parts.push({ type: 'text', text: part.text })
+        if (part.text.trim()) parts.push({ ...part })
         continue
       }
       if (part.type === 'image_url' && part.image_url?.url) {
@@ -74,6 +75,9 @@ function normalizeAnthropicContent(content) {
         continue
       }
       if (part.type === 'image' && part.source) {
+        parts.push(part)
+      }
+      if (['thinking', 'redacted_thinking', 'tool_use', 'tool_result', 'document', 'server_tool_use', 'web_search_tool_result', 'web_fetch_tool_result'].includes(part.type)) {
         parts.push(part)
       }
     }
@@ -153,6 +157,51 @@ function buildCacheControl(cacheConfig) {
   return { type: 'ephemeral' }
 }
 
+function limitCacheBreakpoints(body) {
+  const tools = Array.isArray(body.tools) ? body.tools : []
+  const system = Array.isArray(body.system) ? body.system : []
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  const blocks = [...tools, ...system, ...messages.flatMap(message => Array.isArray(message?.content) ? message.content : [])]
+  const total = blocks.filter(block => block?.cache_control).length
+  // 顶层自动缓存也占一个名额；在自定义 body 合并后仍需检查整个请求。
+  const limit = MAX_CACHE_BREAKPOINTS - (body.cache_control ? 1 : 0)
+  let index = 0
+  let hasShortTtl = false
+  const trimBlock = block => {
+    if (!block?.cache_control) return block
+    if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+      const next = { ...block }
+      delete next.cache_control
+      return next
+    }
+    index += 1
+    // 保留前面的稳定前缀断点和最后的覆盖范围，只移除多余标记，不删提示词。
+    if (total > limit && index >= limit && index !== total) {
+      const next = { ...block }
+      delete next.cache_control
+      return next
+    }
+    if (block.cache_control.ttl === '1h') {
+      if (hasShortTtl) return { ...block, cache_control: { ...block.cache_control, ttl: '5m' } }
+    } else {
+      hasShortTtl = true
+    }
+    return block
+  }
+  const next = { ...body }
+  if (Array.isArray(body.tools)) next.tools = tools.map(trimBlock)
+  if (Array.isArray(body.system)) next.system = system.map(trimBlock)
+  if (Array.isArray(body.messages)) {
+    next.messages = messages.map(message => Array.isArray(message?.content)
+      ? { ...message, content: message.content.map(trimBlock) }
+      : message)
+  }
+  if (hasShortTtl && next.cache_control?.ttl === '1h') {
+    next.cache_control = { ...next.cache_control, ttl: '5m' }
+  }
+  return next
+}
+
 function isToolResultPart(part) {
   return part?.type === 'tool_result'
 }
@@ -206,14 +255,17 @@ function splitMessagesForAnthropic(messages, cacheConfig) {
     const role = String(message.role || '').trim()
     const parts = normalizeAnthropicContent(message.content)
 
-    if (role === 'system') {
+    if (role === 'system' || role === 'developer') {
+      const isMainSystemPrompt = system.length === 0 && rawConversation.length === 0
       for (const part of parts) {
         if (part.type !== 'text') continue
-        if (shouldCacheSystemPart(part, cacheConfig)) {
-          system.push({ ...part, cache_control: buildCacheControl(cacheConfig) })
-        } else {
-          system.push(part)
-        }
+        system.push(part)
+      }
+      // 一个断点会缓存此前的整个前缀。只标记首条主提示词末尾，
+      // 后续摘要、时间标记和当轮指令保持在缓存边界之后。
+      const lastIndex = system.length - 1
+      if (isMainSystemPrompt && shouldCacheSystemPart(system[lastIndex], cacheConfig)) {
+        system[lastIndex] = { ...system[lastIndex], cache_control: buildCacheControl(cacheConfig) }
       }
       continue
     }
@@ -259,9 +311,8 @@ function normalizeAnthropicTools(tools) {
     return {
       name,
       description: String(fn.description || '').trim(),
-      input_schema: fn.parameters && typeof fn.parameters === 'object'
-        ? fn.parameters
-        : { type: 'object', properties: {} }
+      input_schema: fn.parameters || fn.input_schema || { type: 'object', properties: {} },
+      ...(fn.cache_control ? { cache_control: fn.cache_control } : {})
     }
   }).filter(Boolean)
 }
@@ -272,7 +323,7 @@ export function buildAnthropicMessagesRequest(cfg = {}, messages = [], options =
   const body = {
     model: cfg.model,
     stream: options.stream !== false,
-    max_tokens: parseOptionalMaxTokens(cfg.maxTokens) || 4096,
+    max_tokens: resolveOptionalMaxTokens(cfg.maxTokens, options.maxTokens, options.max_tokens) || 4096,
     messages: split.messages
   }
 
@@ -285,20 +336,21 @@ export function buildAnthropicMessagesRequest(cfg = {}, messages = [], options =
     body.tools = tools
     if (options.tool_choice === 'none') {
       body.tool_choice = { type: 'none' }
+    } else if (options.tool_choice === 'required') {
+      body.tool_choice = { type: 'any' }
+    } else if (options.tool_choice?.type === 'function') {
+      body.tool_choice = { type: 'tool', name: options.tool_choice.function?.name || options.tool_choice.name }
+    } else if (options.tool_choice && typeof options.tool_choice === 'object') {
+      body.tool_choice = options.tool_choice
     } else if (typeof options.tool_choice === 'string' && options.tool_choice && options.tool_choice !== 'auto') {
       body.tool_choice = { type: 'tool', name: options.tool_choice }
     }
   }
 
-  if (options.maxTokens || options.max_tokens) {
-    const maxTokens = parseOptionalMaxTokens(options.maxTokens || options.max_tokens)
-    if (maxTokens !== null) body.max_tokens = maxTokens
-  }
-
   return {
     url: resolveAnthropicMessagesUrl(cfg.url),
     headers: buildAnthropicHeaders(cfg),
-    body
+    body: limitCacheBreakpoints(body)
   }
 }
 
@@ -342,6 +394,9 @@ export async function consumeAnthropicMessagesStream(res, onDelta, options = {})
   let finishReason = null
   let usage = null
   const pendingToolCalls = new Map()
+  const contentBlocks = new Map()
+  let rawText = ''
+  let hasSSEData = false
   let reasoningContent = ''
 
   const emit = (text) => {
@@ -352,79 +407,116 @@ export async function consumeAnthropicMessagesStream(res, onDelta, options = {})
     if (typeof onDelta === 'function') onDelta(delta)
   }
 
+  const processPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return
+    if (payload.type === 'error' || payload.error) throw new Error(payload.error?.message || payload.message || 'Messages 接口生成回复失败')
+    emit(extractTextFromAnthropicPayload(payload))
+    if (Array.isArray(payload.content)) {
+      payload.content.forEach((block, index) => {
+        contentBlocks.set(index, { ...block })
+        if (block.type === 'tool_use') pendingToolCalls.set(index, { id: block.id, type: 'function', name: block.name, arguments: JSON.stringify(block.input || {}) })
+      })
+    }
+    if (payload.type === 'content_block_start' && payload.content_block) {
+      contentBlocks.set(Number(payload.index || 0), { ...payload.content_block })
+    }
+    if (payload.type === 'content_block_delta') {
+      const index = Number(payload.index || 0)
+      const block = contentBlocks.get(index)
+      if (block && payload.delta?.type === 'text_delta') block.text = (block.text || '') + String(payload.delta.text || '')
+      if (block && payload.delta?.type === 'thinking_delta') block.thinking = (block.thinking || '') + String(payload.delta.thinking || '')
+      if (block && payload.delta?.type === 'signature_delta') block.signature = (block.signature || '') + String(payload.delta.signature || '')
+    }
+    const reasoningDelta = extractReasoningFromAnthropicPayload(payload)
+    if (reasoningDelta) {
+      reasoningContent += reasoningDelta
+      options.onReasoningDelta?.(reasoningContent)
+    }
+    if (payload.type === 'content_block_start' && payload.content_block?.type === 'tool_use') {
+      const index = Number.isFinite(Number(payload.index)) ? Number(payload.index) : pendingToolCalls.size
+      pendingToolCalls.set(index, {
+        id: String(payload.content_block.id || ''),
+        type: 'function',
+        name: String(payload.content_block.name || ''),
+        arguments: payload.content_block.input && Object.keys(payload.content_block.input).length > 0
+          ? JSON.stringify(payload.content_block.input)
+          : ''
+      })
+    }
+    if (payload.type === 'content_block_delta' && payload.delta?.type === 'input_json_delta') {
+      const index = Number.isFinite(Number(payload.index)) ? Number(payload.index) : 0
+      if (!pendingToolCalls.has(index)) {
+        pendingToolCalls.set(index, { id: '', type: 'function', name: '', arguments: '' })
+      }
+      pendingToolCalls.get(index).arguments += String(payload.delta.partial_json || '')
+    }
+    const nextFinishReason = extractFinishReason(payload)
+    if (nextFinishReason) finishReason = nextFinishReason
+    if (payload.usage && typeof payload.usage === 'object') usage = { ...usage, ...payload.usage }
+    if (payload.message?.usage && typeof payload.message.usage === 'object') usage = { ...usage, ...payload.message.usage }
+  }
   const processEvent = () => {
     if (eventLines.length === 0) return
     const payloadText = eventLines.join('\n').trim()
     eventLines = []
     if (!payloadText || payloadText === '[DONE]') return
-    try {
-      const payload = JSON.parse(payloadText)
-      emit(extractTextFromAnthropicPayload(payload))
-      const reasoningDelta = extractReasoningFromAnthropicPayload(payload)
-      if (reasoningDelta) {
-        reasoningContent += reasoningDelta
-        options.onReasoningDelta?.(reasoningContent)
-      }
-      if (payload.type === 'content_block_start' && payload.content_block?.type === 'tool_use') {
-        const index = Number.isFinite(Number(payload.index)) ? Number(payload.index) : pendingToolCalls.size
-        pendingToolCalls.set(index, {
-          id: String(payload.content_block.id || ''),
-          type: 'function',
-          name: String(payload.content_block.name || ''),
-          arguments: payload.content_block.input && Object.keys(payload.content_block.input).length > 0
-            ? JSON.stringify(payload.content_block.input)
-            : ''
-        })
-      }
-      if (payload.type === 'content_block_delta' && payload.delta?.type === 'input_json_delta') {
-        const index = Number.isFinite(Number(payload.index)) ? Number(payload.index) : 0
-        if (!pendingToolCalls.has(index)) {
-          pendingToolCalls.set(index, { id: '', type: 'function', name: '', arguments: '' })
+    let payload
+    try { payload = JSON.parse(payloadText) } catch { return }
+    processPayload(payload)
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      if (!hasSSEData) rawText += chunk
+      lineBuffer += chunk
+      const lines = lineBuffer.split(/\r?\n/)
+      lineBuffer = lines.pop() || ''
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd()
+        if (line === '') {
+          processEvent()
+          continue
         }
-        pendingToolCalls.get(index).arguments += String(payload.delta.partial_json || '')
-      }
-      const nextFinishReason = extractFinishReason(payload)
-      if (nextFinishReason) finishReason = nextFinishReason
-      if (payload.usage && typeof payload.usage === 'object') usage = payload.usage
-      if (payload.message?.usage && typeof payload.message.usage === 'object') usage = payload.message.usage
-    } catch {
-      // Ignore malformed SSE frames and keep reading.
-    }
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    lineBuffer += decoder.decode(value, { stream: true })
-    const lines = lineBuffer.split(/\r?\n/)
-    lineBuffer = lines.pop() || ''
-    for (const rawLine of lines) {
-      const line = rawLine.trimEnd()
-      if (line === '') {
-        processEvent()
-        continue
-      }
-      if (line.startsWith('data:')) {
-        eventLines.push(line.slice(5).trimStart())
+        if (line.startsWith('data:')) {
+          hasSSEData = true
+          rawText = ''
+          eventLines.push(line.slice(5).trimStart())
+        }
       }
     }
-  }
 
-  if (lineBuffer.trim().startsWith('data:')) {
-    eventLines.push(lineBuffer.trimEnd().slice(5).trimStart())
-  }
-  processEvent()
+    if (lineBuffer.trim().startsWith('data:')) {
+      hasSSEData = true
+      eventLines.push(lineBuffer.trimEnd().slice(5).trimStart())
+    }
+    processEvent()
+    if (!hasSSEData && rawText.trim()) {
+      let payload = null
+      try { payload = JSON.parse(rawText) } catch { /* Non-JSON fallback handled by the caller. */ }
+      processPayload(payload)
+    }
+  } catch (error) {
+    try { await reader.cancel() } catch { /* Preserve the API error. */ }
+    throw error
+  } finally { reader.releaseLock?.() }
 
   const toolCalls = [...pendingToolCalls.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, call]) => ({
-      id: call.id,
-      type: call.type,
-      function: {
-        name: call.name,
-        arguments: call.arguments
+    .map(([index, call]) => {
+      const block = contentBlocks.get(index)
+      if (block?.type === 'tool_use') block.input = safeParseToolArguments(call.arguments)
+      return {
+        id: call.id,
+        type: call.type,
+        function: {
+          name: call.name,
+          arguments: call.arguments
+        }
       }
-    }))
+    })
     .filter(call => call.id || call.function.name || call.function.arguments)
 
   return {
@@ -435,12 +527,14 @@ export async function consumeAnthropicMessagesStream(res, onDelta, options = {})
     finishReason,
     filteredReasoningChars: reasoningContent.length,
     reasoningContent: reasoningContent.trim(),
-    toolCalls
+    toolCalls: finishReason === 'max_tokens' ? [] : toolCalls,
+    nativeAssistantMessage: { role: 'assistant', content: [...contentBlocks.entries()].sort((a, b) => a[0] - b[0]).map(([, block]) => block) }
   }
 }
 
 export function extractAnthropicNonStreamText(payload) {
   if (!payload || typeof payload !== 'object') return ''
+  if (payload.error || payload.type === 'error') throw new Error(payload.error?.message || payload.message || 'Messages 接口生成回复失败')
   if (!Array.isArray(payload.content)) return ''
   return payload.content.map(part => {
     if (part?.type === 'text' && typeof part.text === 'string') return part.text
@@ -463,7 +557,7 @@ export function sanitizeAnthropicBody(body) {
   if (sanitized.temperature != null && sanitized.top_p != null) {
     delete sanitized.top_p
   }
-  return sanitized
+  return limitCacheBreakpoints(sanitized)
 }
 
 export async function readAnthropicMessagesError(response, options = {}) {

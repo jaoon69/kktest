@@ -13,6 +13,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import { useReaderStore } from '../../../stores/reader'
 import { useMusicStore } from '../../../stores/music'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from '../../../composables/api/providerRequest'
 import { getTemplateVars, applyTemplateVars, buildPersonaSystemPrompt, insertLorebookEntries } from '../../../composables/api/prompts'
 import { buildContextMessages, splitIntoRounds } from '../../../composables/api/contextWindow'
 import { runOpenAICompatTextStream } from '../../../composables/api/openaiCompatTextStream'
@@ -478,7 +479,6 @@ export async function generateChapterSummary(chapterText, bookId, chapterIndex) 
   if (!trimmed) return null
 
   try {
-    const url = config.url.replace(/\/+$/, '') + '/chat/completions'
     const body = {
       model: config.model || 'gpt-3.5-turbo',
       messages: [
@@ -489,19 +489,12 @@ export async function generateChapterSummary(chapterText, bookId, chapterIndex) 
     }
     applyOptionalMaxTokens(body, config.maxTokens)
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.key}`
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: response } = await fetchProviderChat(config, body)
 
     if (!response.ok) return null
 
     const data = await response.json()
-    const summary = data.choices?.[0]?.message?.content?.trim()
+    const summary = extractProviderNonStreamText(config, data).trim()
     if (!summary) return null
 
     readerStore.addChapterSummary(bookId, chapterIndex, summary)

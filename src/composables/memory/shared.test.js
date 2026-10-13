@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { clearContactMemoryData } from './shared'
+import { clearContactMemoryData, getEmbeddingConfig } from './shared'
+
+describe('getEmbeddingConfig', () => {
+  it('uses the global API connection while keeping the vector toggle per contact', () => {
+    const contact = {
+      memorySettings: {
+        vectorSearchEnabled: true,
+        embeddingApiUrl: 'https://legacy.example.com/v1',
+        embeddingApiKey: 'legacy-key',
+        embeddingModel: 'legacy-model'
+      }
+    }
+    const globalSettings = {
+      embeddingApiUrl: ' https://embedding.example.com/v1 ',
+      embeddingApiKey: ' global-key ',
+      embeddingModel: ' embed-v3 ',
+      embeddingDimensions: 1024
+    }
+
+    expect(getEmbeddingConfig(contact, globalSettings)).toEqual({
+      url: 'https://embedding.example.com/v1',
+      key: 'global-key',
+      model: 'embed-v3',
+      dimensions: 1024
+    })
+
+    contact.memorySettings.vectorSearchEnabled = false
+    expect(getEmbeddingConfig(contact, globalSettings)).toBeNull()
+  })
+})
 
 describe('clearContactMemoryData', () => {
   it('clears every memory layer without deleting chat messages', () => {

@@ -46,7 +46,7 @@ function isEmojiOnly(text) {
   if (!raw) return false
   if (Array.from(raw).length > 3) return false
   try {
-    return /^(?:\p{Extended_Pictographic}|[☀-➿⬀-⯿️‍])+$/u.test(raw)
+    return /^(?:\p{Extended_Pictographic}|[☀-➿⬀-⯿]|\uFE0F|\u200D)+$/u.test(raw)
   } catch {
     return false
   }

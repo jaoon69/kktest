@@ -3,6 +3,7 @@ import {
   buildProviderNonStreamingPayload,
   consumeProviderChatStream,
   extractProviderNonStreamText,
+  extractProviderNonStreamFinishReason,
   fetchProviderChat,
   readProviderChatError,
   summarizeProviderRequestPayload
@@ -55,7 +56,7 @@ async function recoverAssistantReplyWithoutStreaming({ cfg, payload }) {
 
   return {
     content: extractProviderNonStreamText(cfg, data).trim(),
-    finishReason: data?.choices?.[0]?.finish_reason || data?.stop_reason || data?.candidates?.[0]?.finishReason || null,
+    finishReason: extractProviderNonStreamFinishReason(cfg, data),
     usage: data?.usage || data?.usageMetadata || null,
     url: request.targetUrl
   }
@@ -130,7 +131,7 @@ export async function executeStreamedAssistantRequest({
     }
   })
 
-  if (streamInfo?.emittedChars === 0 && !String(streamMsg.content || '').trim()) {
+  if (streamInfo?.emittedChars === 0 && streamInfo?.finishReason !== 'content_filter' && !String(streamMsg.content || '').trim()) {
     if (typeof setThinking === 'function') setThinking(false)
     addDebugLog({
       level: 'warn',

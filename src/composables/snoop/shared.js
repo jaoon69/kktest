@@ -4,7 +4,7 @@ import { usePersonasStore } from '../../stores/personas'
 import { getTemplateVars, applyTemplateVars } from '../api/prompts'
 import { buildMemoryPrompt } from '../memory/injection'
 import { applyOptionalMaxTokens } from '../api/chatCompletions'
-import { fetchOpenAICompat, readOpenAICompatError } from '../api/openaiCompat'
+import { fetchProviderChat, readProviderChatError, extractProviderNonStreamText } from '../api/providerRequest'
 
 export function getResolvedSnoopConfig(contact) {
   const configsStore = useConfigsStore()
@@ -72,10 +72,7 @@ export async function requestSnoopChatCompletion(cfg, systemPrompt, userPrompt, 
     }
     applyOptionalMaxTokens(body, cfg?.maxTokens, maxTokens)
 
-    const result = await fetchOpenAICompat(cfg?.url, {
-      apiKey: cfg?.key,
-      body
-    })
+    const result = await fetchProviderChat(cfg, body)
     response = result.response
   } catch (error) {
     if (isLikelySnoopNetworkError(error)) {
@@ -85,7 +82,7 @@ export async function requestSnoopChatCompletion(cfg, systemPrompt, userPrompt, 
   }
 
   if (!response?.ok) {
-    const detail = await readOpenAICompatError(response)
+    const detail = await readProviderChatError(cfg, response)
     throw createSnoopError('API 返回错误', detail || `HTTP ${response?.status || ''}`.trim())
   }
 
@@ -96,7 +93,7 @@ export async function requestSnoopChatCompletion(cfg, systemPrompt, userPrompt, 
     throw createSnoopError('API 返回格式错误', '接口没有返回合法 JSON')
   }
 
-  return data.choices?.[0]?.message?.content || ''
+  return extractProviderNonStreamText(cfg, data)
 }
 
 export function buildSnoopRolePrompt(contact) {

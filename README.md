@@ -1,8 +1,15 @@
 # KakaChat
 
-仿 iMessage 风格的 AI 角色扮演聊天应用，基于 Vue 3 + Vite + Pinia 构建。在浏览器中模拟真实手机界面，与 AI 角色自然对话。
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commons%20Clause-blue)](LICENSE)
+[![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vite.dev/)
+[![Stars](https://img.shields.io/github/stars/ovo066/KakaChat?style=social)](https://github.com/ovo066/KakaChat)
 
-兼容所有 OpenAI 格式的 API（包括各类中转站），开箱即用。
+仿 iMessage 风格的 AI 角色扮演聊天应用，基于 Vue 3 + Vite + Pinia 构建。在浏览器中模拟真实手机界面，与 AI 角色自然对话——像和真人发消息一样。
+
+> An iMessage-style AI roleplay / companion chat web app (PWA). Group chats, moments feed, lorebooks, voice calls, proactive messages and SillyTavern character card import. Works with OpenAI-compatible, Claude and Gemini APIs. Runs entirely in the browser — your data stays in local IndexedDB.
+
+兼容 OpenAI 格式 API（包括各类中转站），并原生支持 Anthropic Claude、Google Gemini 与 OpenAI Responses 接口，开箱即用。所有数据保存在浏览器本地（IndexedDB），可安装为 PWA。
 
 <!-- 截图占位：替换为实际截图 -->
 <!-- ![screenshot](docs/screenshot.png) -->
@@ -17,6 +24,7 @@
 - 记忆管理（逐联系人核心记忆 + 自动摘要）
 
 **角色与世界观**
+- 导入 SillyTavern 角色卡（PNG / JSON，V1/V2/V3）及其内嵌世界书
 - 人设面具（Personas）— 切换用户身份
 - 世界书（Lorebook）— 关键词触发的世界观注入
 - 拟真互动引擎 — 主动消息、情绪状态、拟人化时机
@@ -31,14 +39,16 @@
 - 日程 / Planner（日历、任务、日记、角色日程）
 - 线下模式（独立故事写作，预设 + 正则）
 - 天气上下文注入、灵动岛通知
+- 智能 UI — AI 回复可内嵌可交互卡片（图表、表格、滑块、按钮等），原生渲染，无 iframe / eval
+- 联网搜索与网页抓取（Tavily / Exa / Firecrawl，带结果缓存）
 - MCP 工具调用支持
 - 主题自定义（CSS 变量 + 深色模式）
 
 ## 快速开始
 
 ```bash
-git clone https://github.com/ovo066/kktest.git
-cd kktest
+git clone https://github.com/ovo066/KakaChat.git
+cd KakaChat
 npm install
 npm run dev
 ```

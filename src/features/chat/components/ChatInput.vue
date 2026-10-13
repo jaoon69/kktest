@@ -218,7 +218,7 @@
           @click="handleSendClick"
         >
           <!-- 麦克风（无输入时） -->
-          <template v-if="showMicButton && !hasInput">
+          <template v-if="micActive">
             <i class="chat-input-mic ph ph-microphone text-[22px] text-[var(--text-secondary)]"></i>
           </template>
           <!-- 文字样式 -->
@@ -363,6 +363,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useContactsStore } from '../../../stores/contacts'
+import { useChatStore } from '../../../stores/chat'
 import { useSettingsStore } from '../../../stores/settings'
 import { useStickersStore } from '../../../stores/stickers'
 import { useChatInputMenu } from '../composables/useChatInputMenu'
@@ -376,6 +377,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'send', 'sendSticker', 'openPhoto', 'openCamera', 'openSticker', 'openMemory', 'openTransfer', 'openGift', 'openVoice', 'openReader', 'openMusic', 'openSearch', 'openMeet', 'openSnoop'])
 
 const contactsStore = useContactsStore()
+const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const stickersStore = useStickersStore()
 const inputEl = ref(null)
@@ -422,7 +424,7 @@ const {
 })
 
 const {
-  hasInput,
+  micActive,
   selectedCandidateIdx,
   stickerCandidates,
   focusInputSoon,
@@ -433,6 +435,7 @@ const {
 } = useChatInputTextController({
   modelValue: computed(() => props.modelValue),
   showMicButton,
+  hasPendingImages: computed(() => chatStore.pendingImages.length > 0),
   inputEl,
   contactsStore,
   stickersStore,

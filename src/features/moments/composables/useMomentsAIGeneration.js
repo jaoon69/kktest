@@ -7,6 +7,7 @@ import {
   stripOuterCodeFence
 } from '../utils/aiGeneration'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText } from '../../../composables/api/providerRequest'
 
 export function useMomentsAIGeneration({
   configsStore,
@@ -108,9 +109,6 @@ export function useMomentsAIGeneration({
   }
 
   async function requestChatCompletion(cfg, systemPrompt, userPrompt, maxTokens = null) {
-    let url = (cfg?.url || '').replace(/\/$/, '')
-    if (!url.endsWith('/chat/completions')) url += '/chat/completions'
-
     const body = {
       model: cfg.model,
       messages: [
@@ -120,18 +118,11 @@ export function useMomentsAIGeneration({
     }
     applyOptionalMaxTokens(body, cfg?.maxTokens, maxTokens)
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + cfg.key
-      },
-      body: JSON.stringify(body)
-    })
+    const { response: response } = await fetchProviderChat(cfg, body)
 
     if (!response.ok) throw new Error('API 请求失败')
     const data = await response.json()
-    return data.choices?.[0]?.message?.content || ''
+    return extractProviderNonStreamText(cfg, data)
   }
 
   function pickThreadTargetReply(moment, actorId) {

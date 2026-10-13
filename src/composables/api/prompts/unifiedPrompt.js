@@ -9,6 +9,7 @@ export function buildUnifiedSystemPrompt(options = {}) {
     memoryPrompt = '',
     specialFeaturesPrompt = '',
     musicContextPrompt = '',
+    intelligentUIPrompt = '',
     includeContextAwareness = false
   } = options
 
@@ -22,6 +23,10 @@ export function buildUnifiedSystemPrompt(options = {}) {
 
   if (memoryPrompt) {
     mainSections.push('<memory>\n' + memoryPrompt + '\n</memory>')
+  }
+
+  if (intelligentUIPrompt) {
+    mainSections.push('<intelligent_ui>\n' + intelligentUIPrompt + '\n</intelligent_ui>')
   }
 
   if (includeContextAwareness) {

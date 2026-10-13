@@ -7,6 +7,7 @@ import { STT_PROVIDER_OPENAI_COMPAT } from '../utils/sttProviders'
 import { createDefaultCloudSyncConfig } from '../utils/cloudSyncConfig'
 import { createDefaultThemeState } from '../utils/themeDefaults'
 import { createDefaultSoundConfig } from '../utils/soundEffects'
+import { createDefaultWebSearchConfig } from '../utils/webSearchConfig'
 
 export function createDefaultThemeSettings() {
   return {
@@ -41,7 +42,12 @@ export function createDefaultGeneralSettings() {
     allowAICall: true,
     allowAIMockImage: false,
     allowAIMusicRecommend: false,
+    allowAIIntelligentUI: false,
     musicSearchApiUrl: '',
+    embeddingApiUrl: '',
+    embeddingApiKey: '',
+    embeddingModel: '',
+    embeddingDimensions: 0,
     enableWeatherContext: false,
     weatherLocationMode: 'auto',
     weatherManualCity: '',
@@ -140,7 +146,8 @@ export function createDefaultToolCallingSettings() {
       mcpBridgeUrl: 'http://localhost:3099',
       mcpBridgeEnabled: false,
       mcpServers: [],
-      mcpDirectServers: []
+      mcpDirectServers: [],
+      webSearch: createDefaultWebSearchConfig()
     }
   }
 }

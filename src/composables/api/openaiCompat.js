@@ -103,10 +103,11 @@ export function resolveOpenAICompatRequest(baseUrl, options = {}) {
     apiKey,
     contentType = true,
     extraHeaders = {},
+    targetUrl: endpointUrl,
     locationLike = null
   } = options
 
-  const targetUrl = resolveOpenAICompatUrl(baseUrl, path)
+  const targetUrl = endpointUrl || resolveOpenAICompatUrl(baseUrl, path)
   const proxied = shouldUseOpenAICompatProxy(targetUrl, locationLike)
   const resolvedTargetUrl = proxied
     ? normalizeAbsoluteHttpUrl(targetUrl, 'API 地址')
@@ -137,12 +138,14 @@ export async function fetchOpenAICompat(baseUrl, options = {}) {
     extraHeaders = {},
     locationLike = null,
     path = '/chat/completions',
+    targetUrl,
     apiKey,
     ...fetchOptions
   } = options
 
   const request = resolveOpenAICompatRequest(baseUrl, {
     path,
+    targetUrl,
     apiKey,
     contentType,
     extraHeaders,

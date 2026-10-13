@@ -3,7 +3,7 @@
  */
 import TOOL_DEFINITIONS from './toolDefinitions'
 
-// 上限只作为 prompt 体积的保险丝：内置工具最多 4 个，其余留给 MCP 工具。
+// 上限只作为 prompt 体积的保险丝：内置工具最多 6 个，其余留给 MCP 工具。
 // intent 模式下 selectToolsForIntent 还会按意图收敛到更小的集合。
 const MAX_TOOLS = 32
 
@@ -21,8 +21,10 @@ export function getAvailableTools(settingsStore, contact, extraTools = []) {
   const tools = []
 
   for (const def of TOOL_DEFINITIONS) {
-    // Settings guard: skip if the required setting is explicitly false
-    if (def.settingsGuard && !settingsStore[def.settingsGuard]) continue
+    // Settings guard: skip if the required setting is falsy
+    if (typeof def.settingsGuard === 'function') {
+      if (!def.settingsGuard(settingsStore)) continue
+    } else if (def.settingsGuard && !settingsStore[def.settingsGuard]) continue
 
     tools.push({
       type: 'function',

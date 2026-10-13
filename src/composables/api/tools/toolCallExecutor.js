@@ -188,7 +188,7 @@ export async function executeToolCalls(toolCalls, context, externalExecutors = n
     let executorMeta = internalDefinition
       ? {
           source: 'internal',
-          displayName: internalDefinition.description || humanizeToolName(toolName)
+          displayName: internalDefinition.displayName || internalDefinition.description || humanizeToolName(toolName)
         }
       : null
 

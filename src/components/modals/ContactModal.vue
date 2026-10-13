@@ -9,6 +9,20 @@
     @delete="deleteContact"
   >
     <div class="p-6 flex flex-col items-center gap-5">
+      <div v-if="!isEdit" class="w-full">
+        <input ref="cardInput" type="file" class="hidden" accept=".png,.json,image/png,application/json" @change="handleCardImport">
+        <button
+          type="button"
+          :disabled="importing"
+          class="w-full px-4 py-3 rounded-[10px] text-[15px] text-[var(--primary-color)] bg-[var(--card-bg)] disabled:opacity-50"
+          @click="cardInput?.click()"
+        >
+          <i class="ph ph-download-simple mr-1"></i>
+          {{ importing ? '正在读取角色卡…' : '导入 SillyTavern 角色卡' }}
+        </button>
+        <p class="mt-2 text-[12px] text-[var(--text-secondary)]">支持 V1/V2/V3 PNG、JSON，自动导入卡内世界书。检查后点击“完成”保存。</p>
+        <p v-if="importError" role="alert" class="mt-2 text-[13px] text-red-500">{{ importError }}</p>
+      </div>
       <input ref="avatarInput" type="file" class="hidden" accept="image/*" @change="handleAvatarChange">
       <div
         class="w-24 h-24 rounded-full bg-[#E9E9EB] dark:bg-gray-700 flex items-center justify-center text-4xl relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
@@ -33,11 +47,23 @@
         <textarea v-model="form.prompt" rows="6" placeholder="系统提示词 (角色设定)&#10;&#10;例如: 你是一个友好的AI助手..." class="w-full px-4 py-3 text-[15px] outline-none resize-none bg-transparent dark:text-white" style="min-height: 160px;"></textarea>
       </div>
 
+      <div v-if="importedCard" class="w-full bg-white dark:bg-[#2c2c2e] rounded-[10px] overflow-hidden">
+        <div class="px-4 py-3 text-[13px] text-[#8E8E93]">开场白（留空则不添加消息）</div>
+        <select v-if="importedCard.alternateGreetings.length" v-model="selectedGreeting" aria-label="选择开场白" class="w-full px-4 py-2 bg-transparent text-[var(--text-primary)]" @change="selectGreeting">
+          <option value="-1">默认开场白</option>
+          <option v-for="(_, index) in importedCard.alternateGreetings" :key="index" :value="index">备用开场白 {{ index + 1 }}</option>
+        </select>
+        <textarea v-model="importGreeting" aria-label="开场白" rows="4" class="w-full px-4 py-3 text-[15px] outline-none resize-none bg-transparent dark:text-white"></textarea>
+        <p v-if="importedCard.creatorNotes" class="px-4 pb-3 text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap">作者说明：{{ importedCard.creatorNotes }}</p>
+      </div>
+
       <!-- Lorebook Binding -->
       <div class="w-full bg-white dark:bg-[#2c2c2e] rounded-[10px] overflow-hidden">
         <div class="px-4 py-3 border-b border-[#E5E5EA] dark:border-gray-700">
           <span class="text-[13px] text-[#8E8E93] uppercase">世界书绑定</span>
         </div>
+        <p v-if="importedCard?.lorebook" class="px-4 py-2 text-[12px] text-[var(--text-secondary)]">已读取卡内世界书（{{ importedCard.lorebook.entries.length }} 条），勾选后将在保存时导入并绑定。部分高级规则可能与酒馆不同。</p>
+        <p v-else-if="missingReferencedLorebook" class="px-4 py-2 text-[12px] text-[var(--text-secondary)]">角色卡引用“{{ missingReferencedLorebook }}”，但未包含世界书内容。请从酒馆导出包含世界书的角色卡，或创建世界书后手动绑定。</p>
         <div v-if="availableLorebooks.length === 0" class="px-4 py-3 text-[#8E8E93] text-center">暂无可绑定世界书</div>
         <div
           v-for="book in availableLorebooks"
@@ -343,6 +369,9 @@ import { usePersonasStore } from '../../stores/personas'
 import { useSettingsStore } from '../../stores/settings'
 import { useStickersStore } from '../../stores/stickers'
 import { useStorage } from '../../composables/useStorage'
+import { useCharacterCardImport } from '../../composables/useCharacterCardImport'
+import { createSTCharacterCardContactData } from '../../utils/stCharacterCard'
+import { makeId } from '../../utils/id'
 import { useToast } from '../../composables/useToast'
 import { isReservedPromptPresetBook } from '../../utils/presetPromptBooks'
 import { compressImage } from '../../composables/useImage'
@@ -371,6 +400,10 @@ const settingsStore = useSettingsStore()
 const stickersStore = useStickersStore()
 const { scheduleSave } = useStorage()
 const { showToast } = useToast()
+const { importedCard, importing, importError, resetImport, importCard } = useCharacterCardImport()
+const cardInput = ref(null)
+const importGreeting = ref('')
+const selectedGreeting = ref('-1')
 
 function normalizeBoundLorebooks(bookIds) {
   if (!Array.isArray(bookIds)) return []
@@ -381,7 +414,13 @@ function normalizeBoundLorebooks(bookIds) {
 }
 
 const availableLorebooks = computed(() => {
-  return (lorebookStore.lorebook?.books || []).filter(book => !isReservedPromptPresetBook(book))
+  const books = (lorebookStore.lorebook?.books || []).filter(book => !isReservedPromptPresetBook(book))
+  return importedCard.value?.lorebook ? [...books, importedCard.value.lorebook] : books
+})
+
+const missingReferencedLorebook = computed(() => {
+  const name = importedCard.value?.referencedLorebook
+  return name && !availableLorebooks.value.some(book => book.name === name) ? name : ''
 })
 
 const availableStickerGroups = computed(() => stickersStore.stickerGroups || [])
@@ -468,6 +507,8 @@ function populateForm(contact) {
 }
 
 watch(() => [props.visible, props.isEdit, props.contactId, contactsStore.contacts.length], ([visible, isEdit]) => {
+  resetImport()
+  importGreeting.value = ''
   if (!visible) return
 
   tempAvatar.value = null
@@ -477,6 +518,30 @@ watch(() => [props.visible, props.isEdit, props.contactId, contactsStore.contact
   }
   resetForm()
 }, { immediate: true })
+
+async function handleCardImport(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const card = await importCard(file)
+  if (!card) return
+  resetForm()
+  form.name = card.name
+  form.prompt = card.prompt
+  tempAvatar.value = card.avatar
+  importGreeting.value = card.firstMessage
+  selectedGreeting.value = '-1'
+  if (card.lorebook) {
+    form.boundLorebooks = [card.lorebook.id]
+  } else if (card.referencedLorebook) {
+    form.boundLorebooks = availableLorebooks.value.filter(book => book.name === card.referencedLorebook).map(book => book.id)
+  }
+}
+
+function selectGreeting(event) {
+  const index = Number(event.target.value)
+  importGreeting.value = index < 0 ? importedCard.value.firstMessage : importedCard.value.alternateGreetings[index]
+}
 
 async function handleAvatarChange(e) {
   const file = e.target.files?.[0]
@@ -550,6 +615,10 @@ function groupStickerCount(groupId) {
 }
 
 function saveContact() {
+  if (importing.value) {
+    showToast('请等待角色卡读取完成')
+    return
+  }
   if (!form.name.trim()) {
     showToast('请输入名称')
     return
@@ -591,7 +660,7 @@ function saveContact() {
     showToast('已更新')
   } else {
     const newContact = {
-      id: 'c_' + Date.now(),
+      id: makeId('c'),
       name: form.name.trim(),
       avatarType,
       avatar,
@@ -607,6 +676,17 @@ function saveContact() {
       maxMessages: form.maxMessages,
       chatBackground: form.chatBackground,
       callHistory: []
+    }
+    if (importedCard.value) {
+      const persona = personasStore.getPersonaForContact(newContact.id)
+      const selectedPersona = personasStore.personas.find(item => item.id === form.personaId) || persona
+      Object.assign(newContact, createSTCharacterCardContactData(importedCard.value, {
+        greeting: importGreeting.value,
+        charName: newContact.name,
+        userName: selectedPersona?.name || '用户'
+      }))
+      const book = importedCard.value.lorebook
+      if (book && boundLorebooks.includes(book.id)) lorebookStore.lorebook.books.push(book)
     }
     contactsStore.contacts.unshift(newContact)
     showToast('已创建')

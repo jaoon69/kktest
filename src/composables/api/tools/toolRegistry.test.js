@@ -66,4 +66,13 @@ describe('toolRegistry', () => {
     expect(tools).toHaveLength(22)
     expect(warnSpy).not.toHaveBeenCalled()
   })
+
+  it('exposes web search tools only when enabled with at least one API key', () => {
+    const names = (webSearch) => getAvailableTools({ toolCallingConfig: { webSearch } })
+      .map((tool) => tool.function.name)
+
+    expect(names({ enabled: true, apiKeys: {} })).not.toContain('web_search')
+    expect(names({ enabled: false, apiKeys: { tavily: 'k' } })).not.toContain('web_search')
+    expect(names({ enabled: true, apiKeys: { firecrawl: 'k' } })).toEqual(['add_memory', 'web_search', 'web_scrape'])
+  })
 })

@@ -14,6 +14,15 @@ const INTENT_RULES = [
   {
     keywords: ['心情', '情绪', '精力', 'mood', 'energy'],
     toolNames: ['update_mood']
+  },
+  {
+    keywords: ['搜索', '搜一下', '搜搜', '查一下', '查查', '上网', '联网', '百度', '谷歌', 'google', 'search', '最新', '新闻', '热搜', '实时', '官网'],
+    toolNames: ['web_search', 'web_scrape']
+  },
+  {
+    keywords: ['http://', 'https://', 'www.', '网页', '网址', '链接', 'scrape', 'url'],
+    patterns: [/\b[a-z0-9-]+\.(?:com|cn|org|net|io|dev|ai|me|co|app|site|wiki)(?:\/|\b)/i],
+    toolNames: ['web_scrape']
   }
 ]
 
@@ -43,7 +52,9 @@ export function selectToolsForIntent(userMessage, allTools) {
   const matchedNames = new Set()
 
   INTENT_RULES.forEach((rule) => {
-    if (rule.keywords.some((keyword) => text.includes(keyword))) {
+    const matched = rule.keywords.some((keyword) => text.includes(keyword))
+      || (rule.patterns || []).some((pattern) => pattern.test(text))
+    if (matched) {
       rule.toolNames.forEach((name) => matchedNames.add(name))
     }
   })

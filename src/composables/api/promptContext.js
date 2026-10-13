@@ -62,6 +62,9 @@ export function createPromptContext({
     get allowAIMusicRecommend() {
       return settingsStore.allowAIMusicRecommend
     },
+    get allowAIIntelligentUI() {
+      return settingsStore.allowAIIntelligentUI
+    },
     get globalPresetLorebookEnabled() {
       return settingsStore.globalPresetLorebookEnabled
     },

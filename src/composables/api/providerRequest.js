@@ -35,7 +35,9 @@ import {
   buildOpenAIResponsesRequest,
   consumeOpenAIResponsesStream,
   extractOpenAIResponsesNonStreamText,
-  readOpenAIResponsesError
+  readOpenAIResponsesError,
+  resolveOpenAIResponsesUrl,
+  sanitizeOpenAIResponsesBody
 } from './openaiResponses'
 
 function getProviderFormat(cfg) {
@@ -64,6 +66,9 @@ function sanitizeProviderBody(format, request, config = {}) {
   }
   if (format === API_FORMAT_GEMINI_GENERATE_CONTENT) {
     sanitizedRequest = { ...request, body: sanitizeGeminiBody(request.body) }
+  }
+  if (format === API_FORMAT_OPENAI_RESPONSES) {
+    sanitizedRequest = { ...request, body: sanitizeOpenAIResponsesBody(request.body) }
   }
   return {
     ...sanitizedRequest,
@@ -133,10 +138,32 @@ export async function fetchProviderChat(cfg = {}, payloadOrRequest, options = {}
     })
   }
 
+  // Older feature callers construct Chat Completions bodies directly.
+  // Convert those bodies here so they also honor the selected native format.
+  if (Array.isArray(payloadOrRequest?.messages) && !payloadOrRequest.body) {
+    const legacyBody = payloadOrRequest
+    const effectiveCfg = {
+      ...normalizedCfg,
+      model: legacyBody.model || normalizedCfg.model,
+      temperature: legacyBody.temperature ?? normalizedCfg.temperature
+    }
+    payloadOrRequest = buildProviderChatPayload(effectiveCfg, legacyBody.messages, {
+      stream: legacyBody.stream === true,
+      maxTokens: legacyBody.max_tokens,
+      tools: legacyBody.tools,
+      tool_choice: legacyBody.tool_choice
+    })
+    if (format === API_FORMAT_OPENAI_RESPONSES && legacyBody.top_p != null) {
+      payloadOrRequest.body.top_p = legacyBody.top_p
+      payloadOrRequest = sanitizeProviderBody(format, payloadOrRequest, effectiveCfg)
+    }
+  }
+
   if (format === API_FORMAT_OPENAI_RESPONSES) {
     const request = payloadOrRequest && typeof payloadOrRequest === 'object' ? payloadOrRequest : {}
     return fetchOpenAICompat(normalizedCfg.url, {
       path: '/responses',
+      targetUrl: request.url || resolveOpenAIResponsesUrl(normalizedCfg.url),
       apiKey: normalizedCfg.key,
       body: request.body,
       ...resolveCompatFetchOptions(normalizedCfg, options)
@@ -274,6 +301,9 @@ async function fetchOpenAICompatModels(normalizedCfg) {
   const extraHeaders = parseCustomRequestHeaders(normalizedCfg.customHeadersJson)
   const { request, response } = await fetchOpenAICompat(normalizedCfg.url, {
     path: '/models',
+    ...(normalizedCfg.apiFormat === API_FORMAT_OPENAI_RESPONSES
+      ? { targetUrl: resolveOpenAIResponsesUrl(normalizedCfg.url).replace(/\/responses(?=[?#]|$)/i, '/models') }
+      : {}),
     method: 'GET',
     apiKey: normalizedCfg.key,
     contentType: false,
@@ -299,6 +329,27 @@ export function extractProviderNonStreamText(cfg = {}, payload) {
   if (typeof payload?.output_text === 'string') return payload.output_text
   if (typeof payload?.text === 'string') return payload.text
   return ''
+}
+
+export function extractProviderNonStreamFinishReason(cfg = {}, payload) {
+  const format = getProviderFormat(cfg)
+  if (format === API_FORMAT_OPENAI_RESPONSES) {
+    const reason = payload?.incomplete_details?.reason
+    if (reason === 'max_output_tokens') return 'length'
+    if (reason === 'content_filter') return 'content_filter'
+    return payload?.status === 'completed' ? 'stop' : (payload?.status || null)
+  }
+  if (format === API_FORMAT_ANTHROPIC_MESSAGES) {
+    if (payload?.stop_reason === 'max_tokens') return 'length'
+    return payload?.stop_reason || null
+  }
+  if (format === API_FORMAT_GEMINI_GENERATE_CONTENT) {
+    const reason = payload?.candidates?.[0]?.finishReason
+    if (reason === 'MAX_TOKENS') return 'length'
+    if (reason === 'SAFETY' || payload?.promptFeedback?.blockReason) return 'content_filter'
+    return reason || null
+  }
+  return payload?.choices?.[0]?.finish_reason || null
 }
 
 export function summarizeProviderRequestPayload(payloadOrRequest) {

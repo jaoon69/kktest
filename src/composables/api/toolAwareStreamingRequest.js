@@ -70,11 +70,12 @@ export async function executeToolAwareStreamedRequest({
   let finalStreamInfo = null
   let finalUrl = ''
   let createdMsgId = null
+  const roundUsages = []
 
   while (true) {
     const enableTools = toolRoundCount < maxToolRounds
     const payloadOptions = {
-      tools: enableTools ? tools : undefined,
+      tools,
       tool_choice: enableTools ? undefined : 'none'
     }
 
@@ -143,6 +144,7 @@ export async function executeToolAwareStreamedRequest({
     streamBatcher.flushNow()
     reasoningBatcher.flushNow()
     finalStreamInfo = streamInfo
+    if (streamInfo?.usage) roundUsages.push(streamInfo.usage)
     appendAssistantReasoning(finalStreamMsg, streamInfo?.reasoningContent, currentRound)
     finalStreamMsg.reasoningStreaming = false
     delete finalStreamMsg.reasoningStreamingRound
@@ -187,7 +189,12 @@ export async function executeToolAwareStreamedRequest({
       if (reasoningContent) {
         assistantToolMessage.reasoning_content = reasoningContent
       }
-      currentMessages.push(assistantToolMessage)
+      // Responses needs the original output items, including reasoning and call IDs.
+      if (Array.isArray(streamInfo.responsesOutput) && streamInfo.responsesOutput.length > 0) {
+        currentMessages.push(...streamInfo.responsesOutput)
+      } else {
+        currentMessages.push(streamInfo.nativeAssistantMessage || assistantToolMessage)
+      }
 
       // Execute tools
       const { messages: toolResults, logs: toolLogs } = await executeToolCalls(
@@ -217,7 +224,7 @@ export async function executeToolAwareStreamedRequest({
   // Record usage
   const estimatedUsage = estimateUsageFromMessages(currentMessages, finalStreamMsg?.content, cfg.model)
   const promptBreakdown = estimatePromptBreakdownFromMessages(currentMessages, cfg.model)
-  recordUsage(activeChat, finalStreamInfo, estimatedUsage, cfg.model, { promptBreakdown })
+  recordUsage(activeChat, finalStreamInfo, estimatedUsage, cfg.model, { promptBreakdown, roundUsages })
 
   addDebugLog({
     level: 'info',

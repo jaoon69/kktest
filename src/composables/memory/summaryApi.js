@@ -1,4 +1,5 @@
 import { resolveOptionalMaxTokens } from '../api/chatCompletions'
+import { fetchProviderChat, extractProviderNonStreamText, extractProviderNonStreamFinishReason } from '../api/providerRequest'
 import { clampNumber, getSummaryConfig, shortErrorText, wait } from './shared'
 
 // 调用API生成总结/提取（静默，不影响聊天）
@@ -13,9 +14,6 @@ export async function callSummaryAPI(store, prompt, messages, contact, options =
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     try {
-      let url = cfg.url.replace(/\/$/, '')
-      if (!url.endsWith('/chat/completions')) url += '/chat/completions'
-
       const customSysPrompt = String(contact?.memorySettings?.summarySystemPrompt || '').trim()
       const fullPrompt = customSysPrompt ? customSysPrompt + '\n\n' + prompt : prompt
 
@@ -35,14 +33,7 @@ export async function callSummaryAPI(store, prompt, messages, contact, options =
         payload.max_tokens = maxTokens
       }
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + cfg.key
-        },
-        body: JSON.stringify(payload)
-      })
+      const { response: res } = await fetchProviderChat(cfg, payload)
 
       const rawText = await res.text()
       let data = null
@@ -67,7 +58,7 @@ export async function callSummaryAPI(store, prompt, messages, contact, options =
         throw err
       }
 
-      const finishReason = data?.choices?.[0]?.finish_reason || null
+      const finishReason = extractProviderNonStreamFinishReason(cfg, data)
       if (finishReason === 'content_filter') {
         return {
           success: false,
@@ -77,7 +68,7 @@ export async function callSummaryAPI(store, prompt, messages, contact, options =
         }
       }
 
-      const content = String(data?.choices?.[0]?.message?.content || '').trim()
+      const content = extractProviderNonStreamText(cfg, data).trim()
       if (!content) {
         const err = new Error('返回内容为空')
         err.retryable = true

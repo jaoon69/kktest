@@ -1,5 +1,6 @@
-import { getCurrentInstance, onBeforeUnmount, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, ref } from 'vue'
 import { useSoundEffects } from '../../../composables/useSoundEffects'
+import { provideSmartUIHost } from '../smartUI/host'
 
 export function useChatMessageActions({
   albumStore,
@@ -35,6 +36,7 @@ export function useChatMessageActions({
   // 编辑弹窗的草稿，独立于主输入框，避免打开编辑时覆盖正在输入的内容
   const editDraft = ref('')
   const soundEffects = useSoundEffects()
+  const assistantReplyInFlight = ref(0)
 
   function cancelReply() {
     store.replyingToId = null
@@ -139,6 +141,15 @@ export function useChatMessageActions({
 
   async function requestAssistantReply(options = {}) {
     if (!store.activeChat) return
+    assistantReplyInFlight.value += 1
+    try {
+      await runAssistantReply(options)
+    } finally {
+      assistantReplyInFlight.value = Math.max(0, assistantReplyInFlight.value - 1)
+    }
+  }
+
+  async function runAssistantReply(options = {}) {
     const pendingStateAlreadySet = options.pendingStateAlreadySet === true
     const contact = store.activeChat
     if (!pendingStateAlreadySet) {
@@ -294,6 +305,42 @@ export function useChatMessageActions({
       await waitForNextPaint()
       await requestAssistantReply({ pendingStateAlreadySet: true })
     }
+  }
+
+  // 智能界面里的 send 按钮：以用户身份发出这句话，并立刻请求角色回应
+  async function sendFromSmartUI(text) {
+    const txt = String(text ?? '').trim().slice(0, 2000)
+    if (!txt || !store.activeChat || assistantReplyInFlight.value > 0) return false
+    if (isGroupChat.value && store.activeChat.groupMode === 'multi' && !store.selectedMemberId) {
+      showToast('请先选择发言成员')
+      return false
+    }
+
+    const newMsg = { id: makeId('msg'), role: 'user', content: txt, time: Date.now(), readStatus: 'unread', fromSmartUI: true }
+    store.activeChat.msgs.push(newMsg)
+    store.ui.animateMsgId = newMsg.id
+    void onMessageSent(store.activeChat, txt, scheduleSave).catch(() => {})
+    soundEffects.playEvent('messageSend')
+    scheduleSave()
+    scrollToBottom?.()
+
+    setAssistantPendingState()
+    await waitForNextPaint()
+    try {
+      await requestAssistantReply({ pendingStateAlreadySet: true })
+    } catch (error) {
+      showToast(error?.message || '回复失败')
+    }
+    return true
+  }
+
+  if (getCurrentInstance()) {
+    provideSmartUIHost({
+      store,
+      scheduleSave,
+      send: sendFromSmartUI,
+      canSend: computed(() => assistantReplyInFlight.value === 0 && !store.ui?.isTyping && !store.ui?.isThinking)
+    })
   }
 
   function handleReply() {

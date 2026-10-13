@@ -5,7 +5,7 @@ import { usePersonasStore } from '../../../stores/personas'
 import { useCharacterResourcesStore } from '../../../stores/characterResources'
 import { applyOptionalMaxTokens } from '../../../composables/api/chatCompletions'
 import { createApiError, createApiFailureResult } from '../../../composables/api/errors'
-import { fetchOpenAICompat, readOpenAICompatError } from '../../../composables/api/openaiCompat'
+import { fetchProviderChat, readProviderChatError, extractProviderNonStreamText } from '../../../composables/api/providerRequest'
 import { runOpenAICompatTextStream } from '../../../composables/api/openaiCompatTextStream'
 import { useVNParser } from './useVNParser'
 import { useImageGen } from '../../../composables/useImageGen'
@@ -396,14 +396,11 @@ ${charDescriptions}
     }
     applyOptionalMaxTokens(body, cfg.maxTokens)
 
-    const { response: res } = await fetchOpenAICompat(cfg.url, {
-      apiKey: cfg.key,
-      body
-    })
+    const { response: res } = await fetchProviderChat(cfg, body)
 
-    if (!res.ok) throw new Error(`分析失败: ${await readOpenAICompatError(res)}`)
+    if (!res.ok) throw new Error(`分析失败: ${await readProviderChatError(cfg, res)}`)
     const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || ''
+    const text = extractProviderNonStreamText(cfg, data)
 
     try {
       const jsonStr = String(text).replace(/^```json?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim()

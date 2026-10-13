@@ -1,5 +1,6 @@
 import { consumeChatCompletionsStream } from './stream'
 import { fetchOpenAICompat, readOpenAICompatError } from './openaiCompat'
+import { isOpenAICompatibleFormat } from './providerFormats'
 
 export function createOpenAICompatTextAccumulator(initialText = '') {
   let text = String(initialText || '')
@@ -75,16 +76,19 @@ export async function runOpenAICompatTextStream(options = {}) {
     extraHeaders
   } = options
 
-  const { request, response } = await fetchOpenAICompat(cfg?.url, {
+  const compatible = isOpenAICompatibleFormat(cfg)
+  const provider = compatible ? null : await import('./providerRequest')
+  const fetchOptions = { signal, extraHeaders }
+  const { request, response } = compatible ? await fetchOpenAICompat(cfg?.url, {
     apiKey: cfg?.key,
     body,
     signal,
     path,
     extraHeaders
-  })
+  }) : await provider.fetchProviderChat(cfg, body, fetchOptions)
 
   if (!response.ok) {
-    const detail = await readOpenAICompatError(response)
+    const detail = compatible ? await readOpenAICompatError(response) : await provider.readProviderChatError(cfg, response)
     throw createOpenAICompatStreamError(detail, response, request, {
       errorPrefix,
       includeStatusInMessage
@@ -92,8 +96,12 @@ export async function runOpenAICompatTextStream(options = {}) {
   }
 
   const accumulator = createOpenAICompatTextAccumulator()
-  const streamResult = await consumeChatCompletionsStream(response, (delta) => {
-    const update = accumulator.push(delta)
+  let nativeText = ''
+  const handleDelta = (delta) => {
+    // Native Responses events are deltas, including legitimate repeated text.
+    const update = compatible ? accumulator.push(delta) : {
+      text: (nativeText += delta), changed: !!delta, emittedDelta: delta, piece: delta
+    }
     if (!update.changed) return
     if (typeof onDelta === 'function' && update.emittedDelta) {
       onDelta(update.emittedDelta, update.text, update.piece)
@@ -101,10 +109,13 @@ export async function runOpenAICompatTextStream(options = {}) {
     if (typeof onText === 'function') {
       onText(update.text, update.emittedDelta, update.piece)
     }
-  })
+  }
+  const streamResult = compatible
+    ? await consumeChatCompletionsStream(response, handleDelta)
+    : await provider.consumeProviderChatStream(cfg, response, handleDelta)
 
   return {
-    text: accumulator.getText(),
+    text: compatible ? accumulator.getText() : nativeText,
     streamResult,
     url: request.targetUrl
   }
